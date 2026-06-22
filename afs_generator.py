@@ -27,6 +27,17 @@ LGREY= colors.HexColor("#9AA0A6"); RULE = colors.HexColor("#1F3864")
 PAGE_W, PAGE_H = A4
 LM = RM = 22*mm; TM = 26*mm; BM = 20*mm
 
+
+from reportlab.lib.utils import ImageReader
+def scaled_image(path, max_w, max_h):
+    """Return an Image scaled to fit within max_w x max_h, preserving aspect ratio."""
+    try:
+        iw, ih = ImageReader(path).getSize()
+        ratio = min(max_w/iw, max_h/ih)
+        return Image(path, width=iw*ratio, height=ih*ratio)
+    except Exception:
+        return Image(path, width=max_w, height=max_h)
+
 def money(v):
     if v in (None,"","-"): return "-"
     try: v=float(v)
@@ -250,11 +261,14 @@ def build(data,out_path):
     A(Paragraph("Report on Other Legal and Regulatory Requirements",h2))
     A(Paragraph("Compliance with the Requirements of Schedule 6 of the Companies and Allied Matters Act of Nigeria",sub))
     A(Paragraph("In our opinion, proper books of account have been kept by the Company, so far as appears from our examination of those books, and the Company's Statement of Financial Position and Statement of Profit or Loss are in agreement with the books of account.",body))
-    A(Spacer(1,16)); A(Paragraph(E["auditor_name"],sig)); A(Paragraph("Chartered Accountants",sigdate))
+    A(Spacer(1,16))
+    if M["mode"]=="final" and M.get("signature_image"):
+        _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; A(_sig); A(Spacer(1,1))
+    A(Paragraph(E["auditor_name"],sig)); A(Paragraph("Chartered Accountants",sigdate))
     if M["mode"]=="final":
         A(Spacer(1,4)); A(Paragraph(f"FRC No: {M['frc_no']}",sigsub)); A(Paragraph(f"ICAN Stamp No: {M['ican_stamp_no']}",sigsub))
         if M.get("stamp_image"):
-            A(Spacer(1,4)); A(Image(M["stamp_image"],width=42*mm,height=42*mm))
+            A(Spacer(1,4)); A(scaled_image(M["stamp_image"], 42*mm, 42*mm))
     A(Spacer(1,6)); A(Paragraph(E["city"],body)); A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
     # 6 SOCI
     for x in heading("Statement of Profit or Loss and Other Comprehensive Income",f"For the year ended {M['period_end']}"): A(x)

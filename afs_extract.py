@@ -132,7 +132,7 @@ def tie_outs(soci,sofp,scf,soce):
 
 def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
              auditor="Kayode Okunola & Co (Chartered Accountants)", auditor_name="Kayode Okunola & Co",
-             frc_no="0968263", ican_stamp_no="", stamp_image=None):
+             frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None):
     wb=openpyxl.load_workbook(xlsx_path, data_only=True)
     E=_sheet_map(wb["Entity"]); C=_sheet_map(wb["Cover"])
     name=str(E.get("Registered name") or "Company").strip()
@@ -235,7 +235,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
           "fy":fy,"period_end":period_end,"sign_date":sign_date,"framework":fw,"framework_short":fws,
           "first_year":first_year,"signatories":(directors or ["Director"])[:n_sig],"sig_words":SIG_WORDS.get(n_sig,str(n_sig)),
           "results_para":results_para,"ppe_para":ppe_para,"frc_no":frc_no,"ican_stamp_no":ican_stamp_no,
-          "stamp_image":stamp_image,"total_pages":19}
+          "stamp_image":stamp_image,"signature_image":signature_image,"total_pages":19}
     flags=[]
     if activity.startswith("["): flags.append("Principal activity not set in the workbook.")
     bk=str(E.get("Bankers") or "").strip().lower()

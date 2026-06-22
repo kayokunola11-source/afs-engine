@@ -33,6 +33,7 @@ def health():
 async def generate(
     workbook: UploadFile = File(...),
     stamp: UploadFile | None = File(None),
+    signature: UploadFile | None = File(None),
     mode: str = Form("draft"),
     template: str = Form("SME"),
     first_year: str = Form("auto"),          # "true" | "false" | "auto"
@@ -52,11 +53,15 @@ async def generate(
         if stamp is not None:
             stamp_path = os.path.join(work, "stamp.png")
             with open(stamp_path, "wb") as f: f.write(await stamp.read())
+        sig_path = None
+        if signature is not None:
+            sig_path = os.path.join(work, "signature.png")
+            with open(sig_path, "wb") as f: f.write(await signature.read())
 
         fy = None if first_year == "auto" else (first_year.lower() == "true")
         data = afs_extract.get_data(recalced, mode=mode, first_year=fy,
                                     n_sig=int(n_signatories), template=template,
-                                    ican_stamp_no=ican_stamp_no, stamp_image=stamp_path)
+                                    ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path)
         out = os.path.join(work, "afs.pdf")
         afs_generator.build(data, out)                       # pass 1
         try:
