@@ -12,6 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
+ENGINE_VERSION = "2026-06-22-final-v3"  # frc_no + signature-crop + stamp-rectangle
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -64,6 +65,11 @@ def clean_to_transparent(path, crop=True):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+@app.get("/version")
+def version():
+    return {"version": ENGINE_VERSION,
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field"]}
 
 @app.post("/generate")
 async def generate(
