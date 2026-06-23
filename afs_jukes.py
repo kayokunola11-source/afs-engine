@@ -2,7 +2,7 @@
 """JUKES-dialect reader: workbooks with lowercase statement tabs
 (sopl / sofp / cashflow / socie / notes), label in column A, no Entity/Cover sheet.
 Entity details come from the app (entity_overrides)."""
-import openpyxl, datetime
+import openpyxl, datetime, re
 
 def _num(v):
     if isinstance(v,(int,float)): return float(v)
@@ -135,6 +135,84 @@ def _read_soce(ws, pl_loss_cy):
         if row["tot"] is None: row["tot"]=(row["sc"] or 0)+(row["re"] or 0)+(row["other"] or 0)
     return out
 
+
+def _kws_for(title):
+    t=title.lower()
+    m=[("revenue reserve",["retained","reserve"]),("retained",["retained"]),("revenue",["revenue"]),
+       ("other income",["other income"]),("cost of sale",["cost of sale"]),("administrative",["administrative"]),
+       ("finance",["finance cost"]),("taxation",["tax"]),("receivable",["receivable"]),
+       ("cash",["cash and","cash &"]),("share capital",["share capital"]),("payable",["payable"]),
+       ("director",["directors"]),("property",["property","plant"]),("fixed asset",["property","plant"]),
+       ("long",["long-term","long term"])]
+    for k,v in m:
+        if k in t: return v
+    w=[x for x in t.split() if len(x)>4]
+    return w[:1] or [t]
+
+def _parse_jukes_ppe(rows):
+    head=rows[0]; names=[]; cols=[]
+    for j in range(2,8):
+        v=head[j] if j<len(head) else None
+        if v and str(v).strip() and "total" not in str(v).lower():
+            names.append(str(v).strip()); cols.append(j)
+    def findrow(*keys):
+        for r in rows:
+            b=str(r[1]).strip().lower() if r[1] else ""
+            if b and any(k in b for k in keys): return r
+        return None
+    cost_r=findrow("cost"); charge_r=findrow("charge for the year","charge")
+    dep_r=findrow("bal c/f","c/f"); nbv_r=findrow("net book value","nbv")
+    def g(r,j): 
+        return (_num(r[j]) or 0) if (r and j<len(r)) else 0
+    classes=[]
+    for nm,j in zip(names,cols):
+        cost=g(cost_r,j); charge=g(charge_r,j); dep=g(dep_r,j); nbv=g(nbv_r,j)
+        if cost or dep or nbv or charge: classes.append([nm,cost,dep,charge,nbv])
+    tot=[sum(c[i] for c in classes) for i in (1,2,3,4)]
+    return {"classes":classes,"total":tot}
+
+def build_jukes_notes(wb):
+    """Read the JUKES 'notes' sheet into the full detailed note set, numbered sequentially from 6."""
+    ns=None
+    for sn in wb.sheetnames:
+        if sn.strip().lower()=="notes": ns=wb[sn]; break
+    if ns is None: return [], []
+    rows=[r for r in ns.iter_rows(min_row=1,max_row=200,max_col=8,values_only=True)]
+    blocks=[]; cur=None
+    for r in rows:
+        a=str(r[0]).strip() if r[0] is not None else ""
+        b=str(r[1]).strip() if r[1] is not None else ""
+        if a and re.match(r'^\d', a):
+            if cur: blocks.append(cur)
+            cur={"title":b or a,"rows":[r]}
+        elif cur is not None:
+            cur["rows"].append(r)
+    if cur: blocks.append(cur)
+    fig=[]; ref=[]; num=6
+    for blk in blocks:
+        title=re.sub(r'^\d{4}\s+','',blk["title"]).strip()   # drop leading year e.g. "2024 Fixed Asset Schedule"
+        is_ppe="fixed asset" in title.lower() or "property" in title.lower()
+        if is_ppe:
+            ppe=_parse_jukes_ppe(blk["rows"])
+            if not (ppe["classes"] or any(ppe["total"])): continue
+            fig.append({"title":f"{num}. Property, Plant and Equipment","ppe":ppe}); ref.append((["property","plant","fixed asset"],num)); num+=1
+            continue
+        items=[]; total=None
+        for r in blk["rows"][1:]:
+            b=str(r[1]).strip() if r[1] is not None else ""
+            cy=_num(r[2]); py=_num(r[3])
+            if b:
+                if cy is None and py is None: continue
+                items.append([b,cy or 0,py or 0])
+            elif cy is not None or py is not None:
+                total=(cy or 0, py or 0)
+        if not items and total is None: continue
+        tbl=list(items)
+        if total is not None: tbl.append([f"Total {title.lower()}", total[0], total[1], "total"])
+        elif items: tbl.append([f"Total {title.lower()}", sum(i[1] for i in items), sum(i[2] for i in items), "total"])
+        fig.append({"title":f"{num}. {title}","table":tbl}); ref.append((_kws_for(title),num)); num+=1
+    return fig, ref
+
 def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
                    auditor="Kayode Okunola & Co (Chartered Accountants)", auditor_name="Kayode Okunola & Co",
                    frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None,
@@ -187,11 +265,12 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
         {"title":"3. Operating Environment","paras":["The Nigerian business environment in "+(fy or "the year")+" continued to be characterised by elevated inflation, foreign-exchange volatility, rising input costs and evolving fiscal and monetary policy. The Directors continue to monitor developments in the Company's sector.","[App note: auto-tailored to the client's industry once principal activity is confirmed.]"]},
         {"title":"4. Significant Accounting Policies","paras":["4.1 Revenue is recognised when control of goods/services transfers to the customer, net of VAT.","4.2 Property, plant and equipment is stated at cost less accumulated depreciation, depreciated on a straight-line basis.","4.3 Trade receivables and payables are measured at amortised cost.","4.4 Taxation is computed under prevailing Nigerian tax legislation."]},
         {"title":"5. Financial Risk Management","paras":["The Company is exposed to financial, operational and market risks; management has procedures to identify, monitor and mitigate them under Board oversight."]},
-        {"title":"6. Revenue","table":[["Revenue / turnover",rev_cy,rev_py],["Total revenue",rev_cy,rev_py,"total"]]},
-        {"title":"7. Cost of Sales","table":[["Direct cost",abs(cos),abs(gv(soci,'Cost of sales','py'))],["Total cost of sales",abs(cos),abs(gv(soci,'Cost of sales','py')),"total"]]},
-        {"title":"8. Administrative Expenses","table":[["Administrative expenses (per schedule)",abs(adm),abs(gv(soci,'Administrative expenses','py'))],["Total administrative expenses",abs(adm),abs(gv(soci,'Administrative expenses','py')),"total"]]},
-        {"title":"9. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have adopted the going-concern basis in preparing these financial statements."]},
     ]
+    _fig,_refj=build_jukes_notes(wb)
+    import afs_notes as _an
+    _an.remap_statement_refs(soci,_refj); _an.remap_statement_refs(sofp_rows,_refj)
+    _gcn=6+len(_fig)
+    notes=notes+_fig+[{"title":f"{_gcn}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have adopted the going-concern basis in preparing these financial statements."]}]
     entity={"name":name,"short_name":name.split()[0] if name else "Company","name_line2":" ".join(name.split()[1:]) or "Limited",
             "rc":rc,"activity":activity,"activity_short":activity if not activity.startswith("[") else "[Principal activity to be confirmed]",
             "activity_para":f"The principal activity of the Company during the year is {activity if not activity.startswith('[') else '[to be confirmed]'}.",

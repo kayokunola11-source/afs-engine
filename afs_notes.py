@@ -11,30 +11,65 @@ def _f(v):
         except ValueError: return None
     return None
 
-def read_fig_note(ws):
-    """Note_XX sheet: Description in col B, CY in col C, PY in col D. Keep line items that have a
-    value (either year) plus the Total row; skip headers / CHECK / guidance text."""
-    rows=[]; started=False
+
+def build_tb_index(wb):
+    """Map account code -> (CY, PY) magnitude, read directly from the trial balance. This bypasses
+    the note sheets' SUMIFS formulas, which LibreOffice evaluates to 0 on number/text criteria."""
+    tb=None
+    for sn in wb.sheetnames:
+        if sn.strip().lower()=="tb": tb=wb[sn]; break
+    if tb is None: return {}
+    hdr=None; col={}
+    for i,r in enumerate(tb.iter_rows(min_row=1,max_row=10,max_col=16,values_only=True),1):
+        labs=[str(c).strip().lower() if c is not None else "" for c in r]
+        if "code" in labs and ("cy dr" in labs or "cy cr" in labs):
+            hdr=i
+            for j,l in enumerate(labs):
+                if l in ("code","cy dr","cy cr","py dr","py cr"): col[l]=j
+            break
+    if hdr is None or "code" not in col: return {}
+    def g(r,key):
+        j=col.get(key); v=r[j] if (j is not None and j<len(r)) else None
+        return v if isinstance(v,(int,float)) else 0.0
+    idx={}
+    for r in tb.iter_rows(min_row=hdr+1,max_row=hdr+300,max_col=16,values_only=True):
+        c=r[col["code"]]
+        if c is None or str(c).strip()=="": continue
+        code=str(c).strip()
+        if code.endswith(".0"): code=code[:-2]
+        cy=abs(g(r,"cy dr")-g(r,"cy cr")); py=abs(g(r,"py dr")-g(r,"py cr"))
+        idx[code]=(cy,py)
+    return idx
+
+def read_fig_note(ws, tb=None):
+    """Read a Note_XX figure note. Values come from the TB (by the code in col A) when available,
+    otherwise from the sheet's own columns. Skips headers / CHECK / reconciliation rows."""
+    items=[]; total_label=None
     for r in ws.iter_rows(min_row=1,max_row=70,max_col=4,values_only=True):
         a=r[0]; b=r[1]; cy=r[2]; py=r[3]
+        code=str(a).strip() if a is not None else ""
+        if code.endswith(".0"): code=code[:-2]
         bs=str(b).strip() if b is not None else ""
-        if not started:
-            if bs.lower()=="description" or (a and str(a).strip().lower()=="code"): started=True
-            continue
         if not bs: continue
         bl=bs.lower()
+        if bl=="description" or code.lower()=="code": continue
         if (bl.startswith("the ") or bl.startswith("tip") or "auto-pull" in bl or "must = 0" in bl
                 or bs.upper().startswith("CHECK") or "difference" in bl or "reconcil" in bl
                 or " per note" in bl or "per ls" in bl or "per tb" in bl or "per sofp" in bl
                 or "per soci" in bl or "row 9" in bl or "row 30" in bl):
             continue
-        cyv=_f(cy); pyv=_f(py)
-        tot = bl.startswith("total")
-        rows.append([bs, cyv or 0, pyv or 0, ("total" if tot else "")])
-    line_items=[r for r in rows if r[3]!="total" and (r[1] or r[2])]
-    totals=[r for r in rows if r[3]=="total"]
-    if line_items: return line_items+totals
-    return totals or rows[-1:]   # nothing coded -> just the total line
+        if bl.startswith("total"):
+            total_label=bs; continue
+        if tb and code and code in tb:
+            cyv,pyv=tb[code]
+        else:
+            cyv=_f(cy) or 0; pyv=_f(py) or 0
+        items.append([bs, cyv, pyv])
+    line_items=[r for r in items if abs(r[1])>=1 or abs(r[2])>=1]
+    if not line_items:
+        return [[total_label or "Total", 0, 0, "total"]]   # uncoded -> fill_uncoded_totals handles
+    tcy=sum(r[1] for r in line_items); tpy=sum(r[2] for r in line_items)
+    return line_items + [[total_label or "Total", tcy, tpy, "total"]]
 
 def read_ppe_schedule(ws):
     classes=[]; total=None; header=False
@@ -69,6 +104,7 @@ CANON=[
 def build_figure_notes(wb, start_num, stmt_rows=None):
     """Return (notes, ref_map). notes are generator-ready dicts numbered from start_num;
     ref_map maps each note's match keywords to its number for statement remapping."""
+    tb=build_tb_index(wb)
     notes=[]; ref=[]; num=start_num
     for key,title,sheet,kws,special in CANON:
         present = sheet in wb.sheetnames
@@ -78,7 +114,7 @@ def build_figure_notes(wb, start_num, stmt_rows=None):
             nd["ppe"]=read_ppe_schedule(wb[sheet])
             if not (nd["ppe"]["classes"] or any(nd["ppe"]["total"])): continue
         else:
-            tbl=read_fig_note(wb[sheet])
+            tbl=read_fig_note(wb[sheet], tb)
             if not tbl: continue
             nd["table"]=tbl
         nd["_num"]=num; nd["_title"]=title
@@ -102,7 +138,7 @@ def fill_uncoded_totals(notes, stmt_rows):
     for nd in notes:
         if "_num" not in nd or "table" not in nd: continue
         tbl=nd["table"]
-        line_items=[r for r in tbl if r[3]!="total"]
+        line_items=[r for r in tbl if not (len(r)>3 and r[3]=="total")]
         tot_zero=all(abs(r[1])<1 and abs(r[2])<1 for r in tbl)
         if line_items or not tot_zero: continue
         num=str(nd["_num"]); cy=py=0.0

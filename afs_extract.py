@@ -159,6 +159,15 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     activity=str(E.get("Principal activity") or "").strip() or "[Principal activity to be confirmed]"
     period_end=_fmtdate(C.get("Period ended (dd/mm/yyyy)") or C.get("Period ended"))
     sign_date=_fmtdate(C.get("Date of signing"))
+    # engagement details (from the app) take precedence over the workbook's own fields
+    _eo=entity_overrides or {}
+    if _eo.get("name"): name=_eo["name"]
+    if _eo.get("rc"): rc=_eo["rc"]
+    if _eo.get("period_end"): period_end=_eo["period_end"]
+    if _eo.get("sign_date"): sign_date=_eo["sign_date"]
+    if _eo.get("city"): city_override=_eo["city"]
+    if _eo.get("directors"): directors=_eo["directors"]
+    if _eo.get("activity"): activity=_eo["activity"]
     fy=period_end.split()[-1] if period_end else ""
     if first_year is None:
         first_year=str(C.get("First year of operations?") or "No").strip().lower().startswith("y")
@@ -225,6 +234,13 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     _fignotes,_ref=afs_notes.build_figure_notes(wb, 6)
     afs_notes.remap_statement_refs(soci,_ref); afs_notes.remap_statement_refs(sofp,_ref)
     afs_notes.fill_uncoded_totals(_fignotes, (soci or [])+(sofp or []))
+    # warn (preparer-only) about notes coded for the prior year but not the current year
+    _uncoded=[]
+    for _nd in _fignotes:
+        _t=_nd.get("table") or []
+        _li=[r for r in _t if not (len(r)>3 and r[3]=="total")]
+        if _li and all(abs(r[1])<1 for r in _li) and any(abs(r[2])>1 for r in _li):
+            _uncoded.append(_nd["title"].split(". ",1)[-1])
     _gc=6+len(_fignotes)
     notes=narr+_fignotes+[{"title":f"{_gc}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]}]
     # Asset-management workbooks carry their own full notes -> use them
@@ -260,6 +276,10 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
         if abs(adm_detail)<1 and abs(srow(soci,"Administrative expenses")[0])>0:
             flags.append("Some note breakdowns are not coded at line-item level in the trial balance; the affected notes show totals only. Code the TB for full line-item disclosures. (This note is for the preparer and does not appear in the financial statements.)")
     except Exception: pass
+    if _uncoded:
+        flags.append("Current-year line-item detail is not coded in the trial balance for: "
+                     + ", ".join(_uncoded[:10])
+                     + ". These notes show the prior year only until the current-year TB is coded to the account codes. (Preparer note \u2014 not shown in the financial statements.)")
     data={"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,"flags":flags}
     data["tie_outs"]=[{"name":n,"pass":bool(ok)} for n,ok in tie_outs(soci,sofp,scf,soce)]
     return data

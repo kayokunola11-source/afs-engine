@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-23-feedback-v8"  # framework + detailed notes + PPE schedule + dynamic years + no working-paper text
+ENGINE_VERSION = "2026-06-23-tb-notes-v10"  # notes read from trial balance + entity overrides for all formats
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).

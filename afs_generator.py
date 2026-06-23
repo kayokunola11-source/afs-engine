@@ -128,10 +128,12 @@ def stmt_table(rows,first_year=False,cy_year="2025",py_year="2024"):
                            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+styles))
     return t
 
-def note_table(pairs,first_year=False):
-    show_py=not first_year; data=[["","₦","₦" if show_py else ""]]
-    styles=[("FONTNAME",(0,0),(-1,0),"DVB"),("ALIGN",(1,0),(-1,0),"RIGHT"),("FONTSIZE",(0,0),(-1,0),9),
-            ("LINEBELOW",(0,0),(-1,0),0.5,LGREY)]
+def note_table(pairs,first_year=False,cy_year="",py_year=""):
+    show_py=not first_year
+    data=[["",str(cy_year),(str(py_year) if show_py else "")],["","₦","₦" if show_py else ""]]
+    styles=[("FONTNAME",(0,0),(-1,1),"DVB"),("ALIGN",(1,0),(-1,1),"RIGHT"),("FONTSIZE",(0,0),(-1,0),8.5),
+            ("TEXTCOLOR",(0,0),(-1,0),NAVY2),("FONTSIZE",(0,1),(-1,1),9),
+            ("LINEBELOW",(0,1),(-1,1),0.5,LGREY),("BOTTOMPADDING",(0,0),(-1,0),1),("TOPPADDING",(0,1),(-1,1),0)]
     for lbl,cy,py,*rest in pairs:
         tot=rest and rest[0]=="total"
         data.append([lbl,money(cy),money(py) if show_py else ""]); ri=len(data)-1
@@ -321,7 +323,7 @@ def build(data,out_path):
         block=[Paragraph(note["title"],h2)]
         for p in note.get("paras",[]): block.append(Paragraph(p,body))
         if note.get("paras") and note.get("table"): block.append(Spacer(1,2))
-        if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first))
+        if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first,(M["fy"] or ""),(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "")))
         if note.get("ppe"): block.append(Spacer(1,2)); block.append(ppe_table(note["ppe"],fy_first))
         A(KeepTogether(block)); A(Spacer(1,10))
     doc.build(el)
