@@ -26,6 +26,21 @@ def recalc(xlsx_in, work):
     return os.path.join(outdir, os.path.splitext(os.path.basename(xlsx_in))[0] + ".xlsx")
 
 
+
+def trim_border(path):
+    """Crop a scanned colour stamp (e.g. ICAN sticker) to its content and keep it as a clean
+    opaque rectangle. Trims only the very-light scan margin; does NOT make the body transparent."""
+    from PIL import Image
+    img = Image.open(path).convert("RGB")
+    lum = img.convert("L")
+    mask = lum.point(lambda v: 0 if v > 244 else 255)   # content = not near-white
+    bbox = mask.getbbox()
+    if bbox:
+        w, h = img.size; pad = max(2, int(0.01 * max(w, h)))
+        img = img.crop((max(0, bbox[0]-pad), max(0, bbox[1]-pad),
+                        min(w, bbox[2]+pad), min(h, bbox[3]+pad)))
+    img.save(path)
+
 def clean_to_transparent(path, crop=True):
     """Make a scanned signature/stamp usable on the page: knock out the white paper
     background to transparency and crop to the ink. Leaves already-transparent PNGs alone."""
@@ -74,7 +89,7 @@ async def generate(
         if stamp is not None:
             stamp_path = os.path.join(work, "stamp.png")
             with open(stamp_path, "wb") as f: f.write(await stamp.read())
-            try: clean_to_transparent(stamp_path)
+            try: trim_border(stamp_path)
             except Exception: pass
         sig_path = None
         if signature is not None:
