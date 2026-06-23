@@ -179,8 +179,7 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
                   f"{naira(rev_cy)} (prior year: {naira(rev_py)}), representing a {dirn} of approximately {pct:.0f} "
                   f"per cent, and a {plw(gv(soci,'PROFIT/(LOSS) FOR THE YEAR'))} for the year of "
                   f"{naira(abs(gv(soci,'PROFIT/(LOSS) FOR THE YEAR')))}.")
-    flag=("The detailed line-item breakdown for this note is taken directly from the working-paper "
-          "schedules; totals agree to the face of the statements.")
+
     cos=gv(soci,"Cost of sales","cy"); adm=gv(soci,"Administrative expenses","cy")
     notes=[
         {"title":"1. General Information","paras":[f"{name.upper()} (the “Company”) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act"+(f" with Registration Number {rc}" if rc else "")+f". The Company is domiciled in {city}."]},
@@ -189,8 +188,8 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
         {"title":"4. Significant Accounting Policies","paras":["4.1 Revenue is recognised when control of goods/services transfers to the customer, net of VAT.","4.2 Property, plant and equipment is stated at cost less accumulated depreciation, depreciated on a straight-line basis.","4.3 Trade receivables and payables are measured at amortised cost.","4.4 Taxation is computed under prevailing Nigerian tax legislation."]},
         {"title":"5. Financial Risk Management","paras":["The Company is exposed to financial, operational and market risks; management has procedures to identify, monitor and mitigate them under Board oversight."]},
         {"title":"6. Revenue","table":[["Revenue / turnover",rev_cy,rev_py],["Total revenue",rev_cy,rev_py,"total"]]},
-        {"title":"7. Cost of Sales","paras":[flag],"table":[["Direct cost",abs(cos),abs(gv(soci,'Cost of sales','py'))],["Total cost of sales",abs(cos),abs(gv(soci,'Cost of sales','py')),"total"]]},
-        {"title":"8. Administrative Expenses","paras":[flag],"table":[["Administrative expenses (per schedule)",abs(adm),abs(gv(soci,'Administrative expenses','py'))],["Total administrative expenses",abs(adm),abs(gv(soci,'Administrative expenses','py')),"total"]]},
+        {"title":"7. Cost of Sales","table":[["Direct cost",abs(cos),abs(gv(soci,'Cost of sales','py'))],["Total cost of sales",abs(cos),abs(gv(soci,'Cost of sales','py')),"total"]]},
+        {"title":"8. Administrative Expenses","table":[["Administrative expenses (per schedule)",abs(adm),abs(gv(soci,'Administrative expenses','py'))],["Total administrative expenses",abs(adm),abs(gv(soci,'Administrative expenses','py')),"total"]]},
         {"title":"9. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have adopted the going-concern basis in preparing these financial statements."]},
     ]
     entity={"name":name,"short_name":name.split()[0] if name else "Company","name_line2":" ".join(name.split()[1:]) or "Limited",

@@ -88,8 +88,7 @@ def cover_page(c,doc):
     c.setStrokeColor(GOLD); c.setLineWidth(2.4); c.line(LM,PAGE_H-40*mm,PAGE_W-RM,PAGE_H-40*mm)
     y=PAGE_H-58*mm; c.setFillColor(NAVY); c.setFont("DVB",34); c.drawString(LM,y,st["short_name"].upper())
     y-=13*mm; c.setFont("DVB",15); c.setFillColor(NAVY2); c.drawString(LM,y,st["name_line2"].upper())
-    y-=8*mm; c.setFont("DVI",11); c.setFillColor(GREY); c.drawString(LM,y,st["activity_short"])
-    y-=6*mm; c.setFont("DV",9.5); c.setFillColor(GREY); c.drawString(LM,y,st["rc"])
+    y-=7*mm; c.setFont("DV",9.5); c.setFillColor(GREY); c.drawString(LM,y,st["rc"])
     y-=34*mm; c.setFillColor(NAVY); c.setFont("DVB",22); c.drawString(LM,y,"AUDITED")
     y-=11*mm; c.drawString(LM,y,"FINANCIAL STATEMENTS")
     y-=9*mm; c.setFont("DV",11); c.setFillColor(GREY); c.drawString(LM,y,f"For the year ended {st['period_end']}")
@@ -99,9 +98,9 @@ def cover_page(c,doc):
     c.setFont("DVI",9); c.setFillColor(GREY); c.drawString(LM,yb-18*mm,"Chartered Accountants")
 
 COLW=[PAGE_W-LM-RM-32*mm-32*mm-14*mm,14*mm,32*mm,32*mm]
-def stmt_table(rows,first_year=False):
+def stmt_table(rows,first_year=False,cy_year="2025",py_year="2024"):
     show_py=not first_year; data=[]; styles=[]
-    data.append(["","Note","2025","2024" if show_py else ""]); r0=0
+    data.append(["","Note",str(cy_year),(str(py_year) if show_py else "")]); r0=0
     styles+=[("FONTNAME",(0,r0),(-1,r0),"DVB"),("FONTSIZE",(0,r0),(-1,r0),8.5),("TEXTCOLOR",(0,r0),(-1,r0),NAVY2),
              ("ALIGN",(1,r0),(-1,r0),"RIGHT"),("LINEBELOW",(0,r0),(-1,r0),0.7,NAVY2),("BOTTOMPADDING",(0,r0),(-1,r0),3)]
     data.append(["","","₦","₦" if show_py else ""]); ru=1
@@ -162,6 +161,32 @@ def soce_table(rows,first_year=False):
     t.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"DV"),("FONTSIZE",(0,0),(-1,-1),9),
                            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+styles))
     return t
+
+
+def ppe_table(ppe, first_year=False):
+    """Fixed-asset schedule by asset class: Class | Cost | Rate | Charge | Acc. deprec'n | NBV."""
+    head=["Asset class","Cost","Rate","Charge","Acc. dep'n","NBV"]
+    data=[head]
+    st=[("FONTNAME",(0,0),(-1,0),"DVB"),("FONTSIZE",(0,0),(-1,0),7.6),("TEXTCOLOR",(0,0),(-1,0),NAVY2),
+        ("ALIGN",(1,0),(-1,0),"RIGHT"),("LINEBELOW",(0,0),(-1,0),0.7,NAVY2),("BOTTOMPADDING",(0,0),(-1,0),3)]
+    def rate(cost,charge): return (charge/cost) if cost else 0
+    for name,cost,dep,charge,nbv in ppe.get("classes",[]):
+        data.append([name, money(cost), (f"{rate(cost,charge)*100:.0f}%" if cost else "-"),
+                     money(charge), money(dep), money(nbv)])
+        ri=len(data)-1
+        st+=[("ALIGN",(1,ri),(-1,ri),"RIGHT"),("TOPPADDING",(0,ri),(-1,ri),2),("BOTTOMPADDING",(0,ri),(-1,ri),2)]
+    t=ppe.get("total")
+    if t:
+        cost,dep,charge,nbv=t
+        data.append(["TOTAL", money(cost), "", money(charge), money(dep), money(nbv)])
+        ri=len(data)-1
+        st+=[("FONTNAME",(0,ri),(-1,ri),"DVB"),("ALIGN",(1,ri),(-1,ri),"RIGHT"),("TEXTCOLOR",(0,ri),(-1,ri),NAVY),
+             ("LINEABOVE",(0,ri),(-1,ri),0.6,colors.black),("LINEBELOW",(1,ri),(-1,ri),1.0,NAVY)]
+    w0=PAGE_W-LM-RM-28*mm-13*mm-26*mm-26*mm-26*mm
+    tab=Table(data,colWidths=[w0,28*mm,13*mm,26*mm,26*mm,26*mm])
+    tab.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"DV"),("FONTSIZE",(0,0),(-1,-1),8),
+                             ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+st))
+    return tab
 
 def heading(txt,subtitle=None):
     el=[Paragraph(txt,h1),
@@ -272,18 +297,19 @@ def build(data,out_path):
     A(Spacer(1,6)); A(Paragraph(E["city"],body)); A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
     # 6 SOCI
     for x in heading("Statement of Profit or Loss and Other Comprehensive Income",f"For the year ended {M['period_end']}"): A(x)
-    A(stmt_table(data["soci"],fy_first)); A(Spacer(1,8))
+    _cyl=M["fy"] or "CY"; _pyl=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "PY")
+    A(stmt_table(data["soci"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
     A(Paragraph("Profit for the year is wholly derived from continuing operations. There were no items of other comprehensive income during the year.",small_i))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 7 SOFP
     for x in heading("Statement of Financial Position",f"As at {M['period_end']}"): A(x)
-    A(stmt_table(data["sofp"],fy_first)); A(Spacer(1,8))
+    A(stmt_table(data["sofp"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
     A(Paragraph(f"These financial statements were approved by the Board of Directors on {M['sign_date']} and signed on its behalf by:",body))
     A(Spacer(1,16)); A(signatures(M["signatories"],M["sign_date"])); A(Spacer(1,6))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 8 SCF
     for x in heading("Statement of Cash Flows",f"For the year ended {M['period_end']} (indirect method)"): A(x)
-    A(stmt_table(data["scf"],fy_first)); A(Spacer(1,8))
+    A(stmt_table(data["scf"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 9 SOCE
     for x in heading("Statement of Changes in Equity",f"For the year ended {M['period_end']}"): A(x)
@@ -296,6 +322,7 @@ def build(data,out_path):
         for p in note.get("paras",[]): block.append(Paragraph(p,body))
         if note.get("paras") and note.get("table"): block.append(Spacer(1,2))
         if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first))
+        if note.get("ppe"): block.append(Spacer(1,2)); block.append(ppe_table(note["ppe"],fy_first))
         A(KeepTogether(block)); A(Spacer(1,10))
     doc.build(el)
 

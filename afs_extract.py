@@ -9,6 +9,8 @@ TEMPLATES = {
     "NGO":          ("applicable financial reporting framework for Not-for-Profit organisations in Nigeria","the NGO reporting framework"),
     "Manufacturing":("International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs)","IFRS for SMEs"),
     "PFA":          ("the Pension Reform Act and applicable PenCom reporting guidelines","the PenCom framework"),
+    "Asset Management": ("International Financial Reporting Standards (IFRS)","IFRS"),
+    "Fund Manager":     ("International Financial Reporting Standards (IFRS)","IFRS"),
 }
 SIG_WORDS={1:"one",2:"two",3:"three",4:"four"}
 SECTION_A={"ASSETS","EQUITY AND LIABILITIES"}
@@ -161,6 +163,9 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     if first_year is None:
         first_year=str(C.get("First year of operations?") or "No").strip().lower().startswith("y")
     fw,fws=TEMPLATES.get(template,TEMPLATES["SME"])
+    _mode=str(C.get("Mode") or C.get("Reporting mode") or "").lower()
+    if "full ifrs" in _mode:                       # SEC fund managers etc. report under full IFRS
+        fw,fws="International Financial Reporting Standards (IFRS)","IFRS"
     n_sig=max(1,min(n_sig,max(1,len(directors))))
 
     soci=_read_statement(wb["SOCI"]); sofp=_read_statement(wb["SOFP"])
@@ -192,52 +197,36 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     ppe_para=(f"Movements in property, plant and equipment during the year are set out in the notes. The "
               f"depreciation charge for the year amounted to {naira(dep)}.")
 
-    flag=("The detailed line-item breakdown for this note was not coded in the trial balance provided; the "
-          "total shown agrees to the face of the financial statements.")
-    # auto figure-notes from the statements
+    # detailed notes: narrative (1-5) + figure notes read from the workbook (6..N), numbered
     def srow(rows,lbl):
         for r in rows:
             if lbl.lower() in r.get("label","").lower(): return (r.get("cy") or 0, r.get("py") or 0)
         return (0,0)
-    notes=[
-        {"title":"1. General Information","paras":[f"{name.upper()} (the “Company”) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act with Registration Number {rc}. The principal activity of the Company is {activity if not activity.startswith('[') else '[to be confirmed]'}. The Company is domiciled in {C.get('City / State') or 'Nigeria'}."]},
-        {"title":"2. Basis of Preparation","paras":[f"The financial statements have been prepared in accordance with the {fw} and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (₦), the functional and presentation currency of the Company."]},
-        {"title":"3. Operating Environment","paras":[
-            "The Nigerian business environment in "+(fy or "the year")+" continued to be characterised by macro-economic conditions including elevated inflation, foreign-exchange volatility following liberalisation of the exchange-rate regime, rising energy and input costs, and evolving fiscal and monetary policy. The Directors continue to monitor developments in the Company's industry and adapt the operating model accordingly.",
-            "[App note: auto-tailored to the client's industry once principal activity is confirmed.]"]},
+    narr=[
+        {"title":"1. General Information","paras":[f"{name.upper()} (the \u201cCompany\u201d) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act with Registration Number {rc}. The Company is domiciled in {C.get('City / State') or 'Nigeria'}."]},
+        {"title":"2. Basis of Preparation","paras":[f"The financial statements have been prepared in accordance with the {fw} and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (\u20a6), the functional and presentation currency of the Company."]},
+        {"title":"3. Operating Environment","paras":["The Nigerian business environment in "+(fy or "the year")+" continued to be characterised by macro-economic conditions including elevated inflation, foreign-exchange volatility, rising input costs and evolving fiscal and monetary policy. The Directors continue to monitor developments in the Company's industry and adapt the operating model accordingly."]},
         {"title":"4. Significant Accounting Policies","paras":[
-            "4.1 Revenue recognition — Revenue is recognised when control of goods or services transfers to the customer, measured at fair value of consideration received or receivable, net of discounts and VAT.",
-            "4.2 Property, plant and equipment — Stated at cost less accumulated depreciation and impairment. Depreciation is on a straight-line basis over estimated useful lives.",
-            "4.3 Trade receivables and payables — Initially at fair value, subsequently at amortised cost less impairment.",
-            "4.4 Cash and cash equivalents — Cash in hand and deposits held at call with banks.",
-            "4.5 Taxation — Current income tax, tertiary education tax and applicable levies under prevailing Nigerian tax legislation."]},
-        {"title":"5. Financial Risk Management","paras":["The Company is exposed to financial, operational, regulatory and market risks. Management has established procedures to identify, evaluate, monitor and mitigate these risks, with overall oversight by the Board."]},
+            "4.1 Statement of compliance and basis of preparation \u2014 The financial statements have been prepared in accordance with the "+fws+" as issued by the International Accounting Standards Board, on the historical-cost basis, and are presented in Nigerian Naira (\u20a6), the functional and presentation currency of the Company.",
+            "4.2 Revenue recognition \u2014 Revenue is measured at the fair value of the consideration received or receivable, net of discounts, returns and value-added tax. Revenue is recognised when the amount can be reliably measured, it is probable that the economic benefits will flow to the Company, and control of the goods or services has been transferred to the customer.",
+            "4.3 Property, plant and equipment \u2014 Stated at cost less accumulated depreciation and any accumulated impairment losses. Depreciation is recognised on a straight-line basis to write off the cost of each asset, less residual value, over its estimated useful life. The depreciation rates applied are set out in the property, plant and equipment note.",
+            "4.4 Trade and other receivables \u2014 Recognised initially at fair value and subsequently measured at amortised cost using the effective interest method, less any provision for impairment (expected credit losses).",
+            "4.5 Trade and other payables \u2014 Obligations for goods and services acquired in the ordinary course of business, recognised initially at fair value and subsequently measured at amortised cost.",
+            "4.6 Cash and cash equivalents \u2014 Comprise cash in hand, deposits held at call with banks and other short-term highly liquid instruments with original maturities of three months or less, net of bank overdrafts where applicable.",
+            "4.7 Provisions \u2014 Recognised when the Company has a present legal or constructive obligation as a result of a past event, it is probable that an outflow of resources will be required, and the amount can be reliably estimated.",
+            "4.8 Taxation \u2014 The income tax charge comprises current income tax, tertiary education tax and applicable levies, computed on the basis of the tax laws enacted or substantively enacted at the reporting date in Nigeria.",
+            "4.9 Events after the reporting date \u2014 New information on conditions existing at the reporting date is reflected in the financial statements. Events that do not affect the position at the reporting date but are material to users are disclosed."]},
+        {"title":"5. Financial Risk Management","paras":[
+            "The Company recognises that taking risk is inherent to its business activities and that effective risk management is fundamental to sustained performance. The Board of Directors retains overall responsibility for the establishment and oversight of the Company's risk-management framework, which is designed to identify, evaluate, monitor, manage and report the risks to which the Company is exposed.",
+            "Risk-management objectives include: minimising surprises and protecting against unexpected losses; aligning business strategy with the risk appetite set by the Board; sustaining a strong, risk-aware culture across the workforce; and ensuring the prudent use of capital and resources.",
+            "Financial risk \u2014 The Company is exposed principally to credit risk (on receivables and bank balances), liquidity risk (meeting obligations as they fall due) and market risk (including interest-rate and foreign-exchange risk). Management monitors these exposures on an ongoing basis and maintains adequate resources and controls to mitigate them."]},
     ]
-    rev=srow(soci,"Revenue"); cos=srow(soci,"Cost of sales"); adm=srow(soci,"Administrative expenses")
-    fin=srow(soci,"Finance cost"); tax=srow(soci,"Taxation")
-    notes.append({"title":"6. Revenue","table":[["Sales / turnover",rev[0],rev[1]],["Total revenue",rev[0],rev[1],"total"]]})
-    if cos[0] or cos[1]:
-        notes.append({"title":"7. Cost of Sales","paras":[flag],"table":[["Cost of sales",abs(cos[0]),abs(cos[1])],["Total cost of sales",abs(cos[0]),abs(cos[1]),"total"]]})
-    notes.append({"title":"8. Administrative Expenses","paras":[flag],"table":[["Administrative expenses (per lead schedule)",abs(adm[0]),abs(adm[1])],["Total administrative expenses",abs(adm[0]),abs(adm[1]),"total"]]})
-    # PPE movement from Note_10_PPE if present
-    try:
-        p=_sheet_map(wb["Note_10_PPE"],key_col=2,val_col=3,maxr=20)
-        pc=_sheet_map(wb["Note_10_PPE"],key_col=2,val_col=4,maxr=20)
-        def pv(k): 
-            v=p.get(k); return v if isinstance(v,(int,float)) else 0
-        def pvp(k):
-            v=pc.get(k); return v if isinstance(v,(int,float)) else 0
-        notes.append({"title":"10. Property, Plant and Equipment","paras":["Fixed-asset schedule for the year."],
-            "table":[["Cost — balance brought forward",pv("Cost - opening"),pvp("Cost - opening")],
-                     ["Additions during the year",pv("Additions during the year"),pvp("Additions during the year")],
-                     ["Cost — balance carried forward",pv("Cost - closing"),pvp("Cost - closing"),"total"],
-                     ["Depreciation — balance brought forward",pv("Accumulated depreciation - opening"),pvp("Accumulated depreciation - opening")],
-                     ["Charge for the year",pv("Charge for the year"),pvp("Charge for the year")],
-                     ["Depreciation — balance carried forward",pv("Accumulated depreciation - closing"),pvp("Accumulated depreciation - closing"),"total"],
-                     ["Net book value",pv("Net book value"),pvp("Net book value"),"total"]]})
-    except Exception:
-        pass
-    notes.append({"title":"19. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]})
+    import afs_notes
+    _fignotes,_ref=afs_notes.build_figure_notes(wb, 6)
+    afs_notes.remap_statement_refs(soci,_ref); afs_notes.remap_statement_refs(sofp,_ref)
+    afs_notes.fill_uncoded_totals(_fignotes, (soci or [])+(sofp or []))
+    _gc=6+len(_fignotes)
+    notes=narr+_fignotes+[{"title":f"{_gc}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]}]
     # Asset-management workbooks carry their own full notes -> use them
     if ("Capital_Adequacy" in wb.sheetnames or "AUM_Schedule" in wb.sheetnames
             or "asset manager" in str(C.get("Entity type") or "").lower()):
@@ -245,9 +234,13 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
         _am=afs_am.build_am_notes(wb)
         if _am: notes=_am
 
+    _ph = (not activity) or activity.startswith("[") or any(w in activity.lower() for w in ("to be completed","to be confirmed","tbc"))
+    _act_para = ("The principal activity of the Company during the year is to be confirmed by the Directors."
+                 if _ph else f"The principal activity of the Company during the year is {activity}. "
+                 "The Company continues to pursue its operations within its sector in Nigeria.")
     entity={"name":name,"short_name":name.split()[0],"name_line2":" ".join(name.split()[1:]) or "Limited",
             "rc":rc,"activity":activity,"activity_short":activity if not activity.startswith("[") else "[Principal activity to be confirmed]",
-            "activity_para":f"The principal activity of the Company during the year is {activity if not activity.startswith('[') else '[to be confirmed]'}. The Company continues to pursue its operations within its sector in Nigeria.",
+            "activity_para":_act_para,
             "directors":directors or ["Director"],"office":office,"bankers":str(E.get("Bankers") or "Banker details to be confirmed"),
             "auditor":auditor,"auditor_name":auditor_name,"city":str(C.get("City / State") or "Lagos, Nigeria")}
     meta={"mode":mode,"template":template,"entity_name":name,"short_name":entity["short_name"],"name_line2":entity["name_line2"],
@@ -265,7 +258,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     try:
         adm_detail=sum(v for v in _sheet_map(wb["Note_08_AdminExpenses"],3,3,60).values() if isinstance(v,(int,float)))
         if abs(adm_detail)<1 and abs(srow(soci,"Administrative expenses")[0])>0:
-            flags.append("Note line-item detail (e.g. admin expenses) not coded in the trial balance; rolled-up totals shown.")
+            flags.append("Some note breakdowns are not coded at line-item level in the trial balance; the affected notes show totals only. Code the TB for full line-item disclosures. (This note is for the preparer and does not appear in the financial statements.)")
     except Exception: pass
     data={"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,"flags":flags}
     data["tie_outs"]=[{"name":n,"pass":bool(ok)} for n,ok in tie_outs(soci,sofp,scf,soce)]

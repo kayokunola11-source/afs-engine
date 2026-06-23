@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-23-am-v5"  # + JUKES dialect + entity overrides + asset-mgmt notes
+ENGINE_VERSION = "2026-06-23-feedback-v8"  # framework + detailed notes + PPE schedule + dynamic years + no working-paper text
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -69,7 +69,7 @@ def health():
 @app.get("/version")
 def version():
     return {"version": ENGINE_VERSION,
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule"]}
 
 @app.post("/generate")
 async def generate(
