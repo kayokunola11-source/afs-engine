@@ -75,6 +75,7 @@ async def generate(
     first_year: str = Form("auto"),          # "true" | "false" | "auto"
     n_signatories: int = Form(2),
     ican_stamp_no: str = Form(""),
+    frc_no: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -101,7 +102,8 @@ async def generate(
         fy = None if first_year == "auto" else (first_year.lower() == "true")
         data = afs_extract.get_data(recalced, mode=mode, first_year=fy,
                                     n_sig=int(n_signatories), template=template,
-                                    ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path)
+                                    ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path,
+                                    **({"frc_no": frc_no} if frc_no else {}))
         out = os.path.join(work, "afs.pdf")
         afs_generator.build(data, out)                       # pass 1
         try:
