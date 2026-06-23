@@ -25,6 +25,27 @@ def recalc(xlsx_in, work):
                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return os.path.join(outdir, os.path.splitext(os.path.basename(xlsx_in))[0] + ".xlsx")
 
+
+def clean_to_transparent(path, crop=True):
+    """Make a scanned signature/stamp usable on the page: knock out the white paper
+    background to transparency and crop to the ink. Leaves already-transparent PNGs alone."""
+    from PIL import Image
+    img = Image.open(path).convert("RGBA")
+    r, g, b, a = img.split()
+    if a.getextrema()[0] < 250:
+        new_a = a                                   # already has transparency
+    else:
+        lum = Image.merge("RGB", (r, g, b)).convert("L")
+        new_a = lum.point(lambda v: 0 if v > 226 else int(max(0, min(255, (232 - v) * 255 / 70))))
+    out = Image.merge("RGBA", (r, g, b, new_a))
+    if crop:
+        bbox = new_a.getbbox()
+        if bbox:
+            w, h = out.size; pad = max(4, int(0.03 * max(w, h)))
+            out = out.crop((max(0, bbox[0]-pad), max(0, bbox[1]-pad),
+                            min(w, bbox[2]+pad), min(h, bbox[3]+pad)))
+    out.save(path)
+
 @app.get("/health")
 def health():
     return {"ok": True}
@@ -53,10 +74,14 @@ async def generate(
         if stamp is not None:
             stamp_path = os.path.join(work, "stamp.png")
             with open(stamp_path, "wb") as f: f.write(await stamp.read())
+            try: clean_to_transparent(stamp_path)
+            except Exception: pass
         sig_path = None
         if signature is not None:
             sig_path = os.path.join(work, "signature.png")
             with open(sig_path, "wb") as f: f.write(await signature.read())
+            try: clean_to_transparent(sig_path)
+            except Exception: pass
 
         fy = None if first_year == "auto" else (first_year.lower() == "true")
         data = afs_extract.get_data(recalced, mode=mode, first_year=fy,
