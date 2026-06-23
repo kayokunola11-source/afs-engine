@@ -5,14 +5,14 @@ POST /generate  (x-api-key)  multipart: workbook=<xlsx>, stamp=<png|optional>
   -> application/pdf  (headers: X-Tie-Outs, X-Extracted-Summary as JSON)
 GET  /health -> {"ok": true}
 """
-import os, tempfile, subprocess, json, shutil, base64
+import os, re, datetime, tempfile, subprocess, json, shutil, base64
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.responses import JSONResponse
 import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-22-final-v3"  # frc_no + signature-crop + stamp-rectangle
+ENGINE_VERSION = "2026-06-23-multidialect-v4"  # + JUKES dialect + entity overrides
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -69,7 +69,7 @@ def health():
 @app.get("/version")
 def version():
     return {"version": ENGINE_VERSION,
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides"]}
 
 @app.post("/generate")
 async def generate(
@@ -82,6 +82,13 @@ async def generate(
     n_signatories: int = Form(2),
     ican_stamp_no: str = Form(""),
     frc_no: str = Form(""),
+    client_name: str = Form(""),
+    rc_number: str = Form(""),
+    year_end: str = Form(""),
+    directors: str = Form(""),
+    sign_date: str = Form(""),
+    principal_activity: str = Form(""),
+    city: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -106,9 +113,20 @@ async def generate(
             except Exception: pass
 
         fy = None if first_year == "auto" else (first_year.lower() == "true")
+        eo = {}
+        if client_name: eo["name"] = client_name
+        if rc_number: eo["rc"] = rc_number
+        if year_end:
+            try: eo["period_end"] = datetime.date.fromisoformat(year_end[:10]).strftime("%-d %B %Y")
+            except Exception: eo["period_end"] = year_end
+        if directors: eo["directors"] = [d.strip() for d in re.split(r"[\n,;]", directors) if d.strip()]
+        if sign_date: eo["sign_date"] = sign_date
+        if principal_activity: eo["activity"] = principal_activity
+        if city: eo["city"] = city
         data = afs_extract.get_data(recalced, mode=mode, first_year=fy,
                                     n_sig=int(n_signatories), template=template,
                                     ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path,
+                                    entity_overrides=(eo or None),
                                     **({"frc_no": frc_no} if frc_no else {}))
         out = os.path.join(work, "afs.pdf")
         afs_generator.build(data, out)                       # pass 1

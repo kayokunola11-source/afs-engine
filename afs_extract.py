@@ -114,12 +114,20 @@ def tie_outs(soci,sofp,scf,soce):
     ta=exact(sofp,"TOTAL ASSETS"); tel=exact(sofp,"TOTAL EQUITY AND LIABILITIES")
     rev=exact(soci,"Revenue"); cos=exact(soci,"Cost of sales"); gp=exact(soci,"GROSS PROFIT")
     pat=exact(soci,"PROFIT/(LOSS) FOR THE YEAR")
-    soce_pat=0; soce_re=0
-    for r in soce:
+    # current-year movement = first "for the year/period"; current closing = first balance total AFTER it.
+    # (Works whichever order the dialect lists the current vs prior blocks.)
+    pat_idx=None
+    for i,r in enumerate(soce):
         ll=r["label"].lower()
-        if "for the year" in ll or "for the period" in ll: soce_pat=r["tot"]
-        if r.get("kind")=="total" and ("31 december" in ll or "end of current" in ll or "balance at 31" in ll):
-            soce_re=r["re"]
+        if "for the year" in ll or "for the period" in ll: pat_idx=i; break
+    soce_pat = soce[pat_idx]["tot"] if pat_idx is not None else 0
+    soce_re=None
+    start = (pat_idx+1) if pat_idx is not None else 0
+    for r in soce[start:]:
+        ll=r["label"].lower()
+        if r.get("kind")=="total" and ll.startswith("balance"):
+            soce_re=r["re"]; break
+    soce_pat=soce_pat or 0; soce_re=soce_re or 0
     sofp_re=_find(sofp,"RETAINED EARNINGS")
     scf_end=_find(scf,"CASH","END OF"); sofp_cash=_find(sofp,"CASH","EQUIVALENTS")
     return [
@@ -132,7 +140,13 @@ def tie_outs(soci,sofp,scf,soce):
 
 def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
              auditor="Kayode Okunola & Co (Chartered Accountants)", auditor_name="Kayode Okunola & Co",
-             frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None):
+             frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None, entity_overrides=None):
+    import afs_jukes
+    if afs_jukes.detect_dialect(xlsx_path)=="jukes":
+        return afs_jukes.get_data_jukes(xlsx_path, mode=mode, first_year=first_year, n_sig=n_sig,
+            template=template, auditor=auditor, auditor_name=auditor_name, frc_no=frc_no,
+            ican_stamp_no=ican_stamp_no, stamp_image=stamp_image, signature_image=signature_image,
+            entity_overrides=entity_overrides)
     wb=openpyxl.load_workbook(xlsx_path, data_only=True)
     E=_sheet_map(wb["Entity"]); C=_sheet_map(wb["Cover"])
     name=str(E.get("Registered name") or "Company").strip()
