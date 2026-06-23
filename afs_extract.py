@@ -155,7 +155,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     office=[l.strip() for l in str(E.get("Registered office address") or "").replace("\n",", ").split(",") if l.strip()]
     office=[", ".join(office[:3]), ", ".join(office[3:])] if len(office)>3 else [", ".join(office)]
     activity=str(E.get("Principal activity") or "").strip() or "[Principal activity to be confirmed]"
-    period_end=_fmtdate(C.get("Period ended (dd/mm/yyyy)"))
+    period_end=_fmtdate(C.get("Period ended (dd/mm/yyyy)") or C.get("Period ended"))
     sign_date=_fmtdate(C.get("Date of signing"))
     fy=period_end.split()[-1] if period_end else ""
     if first_year is None:
@@ -238,6 +238,12 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     except Exception:
         pass
     notes.append({"title":"19. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]})
+    # Asset-management workbooks carry their own full notes -> use them
+    if ("Capital_Adequacy" in wb.sheetnames or "AUM_Schedule" in wb.sheetnames
+            or "asset manager" in str(C.get("Entity type") or "").lower()):
+        import afs_am
+        _am=afs_am.build_am_notes(wb)
+        if _am: notes=_am
 
     entity={"name":name,"short_name":name.split()[0],"name_line2":" ".join(name.split()[1:]) or "Limited",
             "rc":rc,"activity":activity,"activity_short":activity if not activity.startswith("[") else "[Principal activity to be confirmed]",
