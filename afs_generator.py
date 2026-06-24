@@ -78,13 +78,18 @@ def header_footer(c,doc):
     c.line(LM,PAGE_H-17*mm,PAGE_W-RM,PAGE_H-17*mm)
     c.setStrokeColor(LGREY); c.setLineWidth(0.4); c.line(LM,BM+4*mm,PAGE_W-RM,BM+4*mm)
     c.setFont("DVI",7); c.setFillColor(GREY)
-    c.drawString(LM,BM,st['auditor'])
+    c.drawString(LM,BM,st.get('footer_text') or st['auditor'])
     c.drawCentredString(PAGE_W/2,BM,f"Page {doc.page} of {st['total_pages']}")
     c.drawRightString(PAGE_W-RM,BM,"Strictly Confidential"); c.restoreState()
 
 def cover_page(c,doc):
     st=doc.afs
     if st["mode"]=="draft": draw_watermark(c)
+    if st.get("logo_image"):
+        try:
+            ir=ImageReader(st["logo_image"]); iw,ih=ir.getSize(); h=18*mm; w=iw*(h/ih)
+            c.drawImage(ir, LM, PAGE_H-32*mm, width=w, height=h, mask='auto', preserveAspectRatio=True)
+        except Exception: pass
     c.setStrokeColor(GOLD); c.setLineWidth(2.4); c.line(LM,PAGE_H-40*mm,PAGE_W-RM,PAGE_H-40*mm)
     y=PAGE_H-58*mm; c.setFillColor(NAVY); c.setFont("DVB",34); c.drawString(LM,y,st["short_name"].upper())
     y-=13*mm; c.setFont("DVB",15); c.setFillColor(NAVY2); c.drawString(LM,y,st["name_line2"].upper())
@@ -207,7 +212,21 @@ def signatures(names,date_str,role="Director"):
                            ("LEFTPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),3)]))
     return t
 
+
+def _hex(v, default):
+    try: return colors.HexColor(v) if v else colors.HexColor(default)
+    except Exception: return colors.HexColor(default)
+
+def _apply_theme(meta):
+    """Set the document colours from the firm's branding (or Kayode defaults). Called per build."""
+    global NAVY, NAVY2, GOLD, RULE
+    NAVY = _hex(meta.get("primary_color"), "#13315C"); NAVY2 = NAVY; RULE = NAVY
+    GOLD = _hex(meta.get("accent_color"), "#C49A2C")
+    for stl in (h1, h2, sig):
+        stl.textColor = NAVY
+
 def build(data,out_path):
+    _apply_theme(data.get("meta", {}))
     doc=BaseDocTemplate(out_path,pagesize=A4,leftMargin=LM,rightMargin=RM,topMargin=TM,bottomMargin=BM+8*mm)
     frame=Frame(LM,BM+8*mm,PAGE_W-LM-RM,PAGE_H-TM-(BM+8*mm),id="main",leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
     doc.addPageTemplates([PageTemplate(id="cover",frames=[frame],onPage=cover_page),

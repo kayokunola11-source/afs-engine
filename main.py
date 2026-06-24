@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-23-tb-notes-v10"  # notes read from trial balance + entity overrides for all formats
+ENGINE_VERSION = "2026-06-24-branding-v12"  # white-label branding, accepts firm_* field names
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -76,6 +76,8 @@ async def generate(
     workbook: UploadFile = File(...),
     stamp: UploadFile | None = File(None),
     signature: UploadFile | None = File(None),
+    logo: UploadFile | None = File(None),
+    firm_logo: UploadFile | None = File(None),
     mode: str = Form("draft"),
     template: str = Form("SME"),
     first_year: str = Form("auto"),          # "true" | "false" | "auto"
@@ -89,6 +91,16 @@ async def generate(
     sign_date: str = Form(""),
     principal_activity: str = Form(""),
     city: str = Form(""),
+    auditor_name: str = Form(""),
+    primary_color: str = Form(""),
+    accent_color: str = Form(""),
+    footer_text: str = Form(""),
+    firm_frc: str = Form(""),
+    firm_name: str = Form(""),
+    firm_auditor_name: str = Form(""),
+    firm_primary_color: str = Form(""),
+    firm_accent_color: str = Form(""),
+    firm_footer_text: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -111,6 +123,11 @@ async def generate(
             with open(sig_path, "wb") as f: f.write(await signature.read())
             try: clean_to_transparent(sig_path)
             except Exception: pass
+        logo_path = None
+        _logo_up = logo or firm_logo
+        if _logo_up is not None:
+            logo_path = os.path.join(work, "logo.png")
+            with open(logo_path, "wb") as f: f.write(await _logo_up.read())
 
         fy = None if first_year == "auto" else (first_year.lower() == "true")
         eo = {}
@@ -128,6 +145,21 @@ async def generate(
                                     ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path,
                                     entity_overrides=(eo or None),
                                     **({"frc_no": frc_no} if frc_no else {}))
+        # ---- firm branding (white-label); accept firm_* (app) or bare names ----
+        b_auditor = firm_auditor_name or firm_name or auditor_name
+        b_primary = firm_primary_color or primary_color
+        b_accent  = firm_accent_color or accent_color
+        b_footer  = firm_footer_text or footer_text
+        m = data["meta"]; ent = data.get("entity", {})
+        if b_auditor:
+            m["auditor"] = b_auditor; m["auditor_name"] = b_auditor
+            ent["auditor"] = b_auditor; ent["auditor_name"] = b_auditor
+        if b_primary: m["primary_color"] = b_primary
+        if b_accent:  m["accent_color"]  = b_accent
+        if b_footer:  m["footer_text"]   = b_footer
+        if firm_frc and not frc_no: m["frc_no"] = firm_frc
+        if logo_path: m["logo_image"]    = logo_path
+
         out = os.path.join(work, "afs.pdf")
         afs_generator.build(data, out)                       # pass 1
         try:
