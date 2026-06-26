@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-25-tenant-safe-v13"  # neutral auditor default (no tenant leak) + bankers list
+ENGINE_VERSION = "2026-06-26-jukes-note-sheet-v14"  # JUKES: match 'note'/'notes' sheet name
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).

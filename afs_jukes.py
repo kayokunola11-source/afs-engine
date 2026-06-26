@@ -172,31 +172,36 @@ def _parse_jukes_ppe(rows):
     return {"classes":classes,"total":tot}
 
 def build_jukes_notes(wb):
-    """Read the JUKES 'notes' sheet into the full detailed note set, numbered sequentially from 6."""
+    """Read the JUKES 'note'/'notes' sheet into the full detailed note set, KEEPING the workbook's
+    own note numbers (col A) so the figures tie exactly to the references printed on the statements."""
     ns=None
     for sn in wb.sheetnames:
-        if sn.strip().lower()=="notes": ns=wb[sn]; break
+        if sn.strip().lower().startswith("note"): ns=wb[sn]; break   # 'note' or 'notes'
     if ns is None: return [], []
-    rows=[r for r in ns.iter_rows(min_row=1,max_row=200,max_col=8,values_only=True)]
+    rows=[r for r in ns.iter_rows(min_row=1,max_row=300,max_col=8,values_only=True)]
     blocks=[]; cur=None
     for r in rows:
         a=str(r[0]).strip() if r[0] is not None else ""
         b=str(r[1]).strip() if r[1] is not None else ""
         if a and re.match(r'^\d', a):
             if cur: blocks.append(cur)
-            cur={"title":b or a,"rows":[r]}
+            cur={"num":a,"title":b or a,"rows":[r]}
         elif cur is not None:
             cur["rows"].append(r)
     if cur: blocks.append(cur)
-    fig=[]; ref=[]; num=6
+    fig=[]; ref=[]
     for blk in blocks:
-        title=re.sub(r'^\d{4}\s+','',blk["title"]).strip()   # drop leading year e.g. "2024 Fixed Asset Schedule"
+        num=str(blk["num"]).strip()                            # workbook note number e.g. '6','6a','10'
+        title=re.sub(r'^\d{4}\s+','',blk["title"]).strip()     # drop leading year e.g. '2022 Fixed Asset Schedule'
         is_ppe="fixed asset" in title.lower() or "property" in title.lower()
         if is_ppe:
             ppe=_parse_jukes_ppe(blk["rows"])
-            if not (ppe["classes"] or any(ppe["total"])): continue
-            fig.append({"title":f"{num}. Property, Plant and Equipment","ppe":ppe}); ref.append((["property","plant","fixed asset"],num)); num+=1
-            continue
+            if ppe["classes"] or any(ppe["total"]):
+                fig.append({"title":f"{num}. Property, Plant and Equipment","ppe":ppe})
+            else:
+                fig.append({"title":f"{num}. Property, Plant and Equipment",
+                            "paras":["The Company held no property, plant and equipment during the year."]})
+            ref.append((["property","plant","fixed asset"],num)); continue
         items=[]; total=None
         for r in blk["rows"][1:]:
             b=str(r[1]).strip() if r[1] is not None else ""
@@ -210,7 +215,7 @@ def build_jukes_notes(wb):
         tbl=list(items)
         if total is not None: tbl.append([f"Total {title.lower()}", total[0], total[1], "total"])
         elif items: tbl.append([f"Total {title.lower()}", sum(i[1] for i in items), sum(i[2] for i in items), "total"])
-        fig.append({"title":f"{num}. {title}","table":tbl}); ref.append((_kws_for(title),num)); num+=1
+        fig.append({"title":f"{num}. {title}","table":tbl}); ref.append((_kws_for(title),num))
     return fig, ref
 
 def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
@@ -273,9 +278,10 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
         {"title":"5. Financial Risk Management","paras":["The Company is exposed to financial, operational and market risks; management has procedures to identify, monitor and mitigate them under Board oversight."]},
     ]
     _fig,_refj=build_jukes_notes(wb)
-    import afs_notes as _an
-    _an.remap_statement_refs(soci,_refj); _an.remap_statement_refs(sofp_rows,_refj)
-    _gcn=6+len(_fig)
+    # JUKES statements already carry the workbook's note numbers -> no remap needed
+    def _ni(t):
+        m=re.match(r'(\d+)', t['title']); return int(m.group(1)) if m else 0
+    _gcn=max([_ni(n) for n in _fig], default=5)+1
     notes=notes+_fig+[{"title":f"{_gcn}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have adopted the going-concern basis in preparing these financial statements."]}]
     entity={"name":name,"short_name":name.split()[0] if name else "Company","name_line2":" ".join(name.split()[1:]) or "Limited",
             "rc":rc,"activity":activity,"activity_short":activity if not activity.startswith("[") else "[Principal activity to be confirmed]",

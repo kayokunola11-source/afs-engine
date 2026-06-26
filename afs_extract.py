@@ -131,7 +131,12 @@ def tie_outs(soci,sofp,scf,soce):
             soce_re=r["re"]; break
     soce_pat=soce_pat or 0; soce_re=soce_re or 0
     sofp_re=_find(sofp,"RETAINED EARNINGS")
-    scf_end=_find(scf,"CASH","END OF"); sofp_cash=_find(sofp,"CASH","EQUIVALENTS")
+    # closing cash: template uses "...end of year"; JUKES uses "...as at 31/12"; else last grandtotal row
+    scf_end=_find(scf,"CASH","END OF") or _find(scf,"CASH","AS AT 31") or _find(scf,"CASH","31/12")
+    if not scf_end:
+        for r in reversed(scf):
+            if r.get("kind")=="grandtotal": scf_end=r.get("cy") or 0; break
+    sofp_cash=_find(sofp,"CASH","EQUIVALENTS")
     return [
         ("SOFP balances", abs(ta-tel)<1),
         ("Gross profit", abs(rev+cos-gp)<1),
