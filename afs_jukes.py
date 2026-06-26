@@ -214,8 +214,8 @@ def build_jukes_notes(wb):
     return fig, ref
 
 def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
-                   auditor="Kayode Okunola & Co (Chartered Accountants)", auditor_name="Kayode Okunola & Co",
-                   frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None,
+                   auditor="[Audit Firm Name]", auditor_name="[Audit Firm Name]",
+                   frc_no="", ican_stamp_no="", stamp_image=None, signature_image=None,
                    entity_overrides=None):
     eo=entity_overrides or {}
     wb=openpyxl.load_workbook(xlsx_path, data_only=True)
@@ -241,7 +241,13 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
     activity=eo.get("activity") or "[Principal activity to be confirmed]"
     city=eo.get("city") or "Lagos, Nigeria"
     office=eo.get("office") or [city]
-    bankers=eo.get("bankers") or "Banker details to be confirmed"
+    _bk=eo.get("bankers")
+    if isinstance(_bk,(list,tuple)):
+        bankers=[str(b).strip() for b in _bk if str(b).strip()] or ["Banker details to be confirmed"]
+    elif _bk:
+        bankers=[b.strip() for b in str(_bk).replace("\r","").split("\n") if b.strip()] or ["Banker details to be confirmed"]
+    else:
+        bankers="Banker details to be confirmed"
     sign_date=eo.get("sign_date") or ""
     SIG_WORDS={1:"one",2:"two",3:"three",4:"four"}
     n_sig=max(1,min(n_sig,max(1,len(directors))))
@@ -291,7 +297,8 @@ def get_data_jukes(xlsx_path, mode="draft", first_year=None, n_sig=2, template="
     sofp_cash=ax._find(sofp_rows,"CASH","EQUIVALENTS")
     if abs((scf_end or 0)-(sofp_cash or 0))>1:
         flags.append("Cash flow closing cash (₦{:,.0f}) does not agree to balance-sheet cash (₦{:,.0f}); difference ₦{:,.0f} — review the source workbook.".format(scf_end or 0, sofp_cash or 0, (scf_end or 0)-(sofp_cash or 0)))
-    flags.append("Entity details (name, RC, directors) were taken from the engagement form, not the workbook.")
-    data={"meta":meta,"entity":entity,"soci":soci,"sofp":sofp_rows,"scf":scf,"soce":soce_rows,"notes":notes,
-          "flags":flags,"tie_outs":[{"name":n,"pass":bool(ok)} for n,ok in checks]}
-    return data
+    flags.append("Entity details (name, RC, directors) were taken from the engagement form where provided; verify against the source workbook.")
+    return {"entity":entity,"meta":meta,"soci":soci,"sofp":sofp_rows,"scf":scf,"soce":soce_rows,
+            "notes":notes,
+            "tie_outs":[{"name":n,"pass":bool(p)} for n,p in checks],
+            "flags":flags}

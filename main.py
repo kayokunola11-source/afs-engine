@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-24-branding-v12"  # white-label branding, accepts firm_* field names
+ENGINE_VERSION = "2026-06-25-tenant-safe-v13"  # neutral auditor default (no tenant leak) + bankers list
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -91,6 +91,7 @@ async def generate(
     sign_date: str = Form(""),
     principal_activity: str = Form(""),
     city: str = Form(""),
+    bankers: str = Form(""),                 # newline-separated list of bankers
     auditor_name: str = Form(""),
     primary_color: str = Form(""),
     accent_color: str = Form(""),
@@ -140,6 +141,7 @@ async def generate(
         if sign_date: eo["sign_date"] = sign_date
         if principal_activity: eo["activity"] = principal_activity
         if city: eo["city"] = city
+        if bankers: eo["bankers"] = bankers
         data = afs_extract.get_data(recalced, mode=mode, first_year=fy,
                                     n_sig=int(n_signatories), template=template,
                                     ican_stamp_no=ican_stamp_no, stamp_image=stamp_path, signature_image=sig_path,
@@ -190,6 +192,7 @@ async def generate(
             "flags":      data.get("flags", []),
             "mode":       mode,
             "page_count": data["meta"].get("total_pages"),
+            "version":    ENGINE_VERSION,
         }
         return JSONResponse(body)
     finally:

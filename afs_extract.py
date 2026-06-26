@@ -141,8 +141,8 @@ def tie_outs(soci,sofp,scf,soce):
     ]
 
 def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
-             auditor="Kayode Okunola & Co (Chartered Accountants)", auditor_name="Kayode Okunola & Co",
-             frc_no="0968263", ican_stamp_no="", stamp_image=None, signature_image=None, entity_overrides=None):
+             auditor="[Audit Firm Name]", auditor_name="[Audit Firm Name]",
+             frc_no="", ican_stamp_no="", stamp_image=None, signature_image=None, entity_overrides=None):
     import afs_jukes
     if afs_jukes.detect_dialect(xlsx_path)=="jukes":
         return afs_jukes.get_data_jukes(xlsx_path, mode=mode, first_year=first_year, n_sig=n_sig,
@@ -254,10 +254,17 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     _act_para = ("The principal activity of the Company during the year is to be confirmed by the Directors."
                  if _ph else f"The principal activity of the Company during the year is {activity}. "
                  "The Company continues to pursue its operations within its sector in Nigeria.")
+    # bankers: app override (str newline-list or list) > workbook > placeholder
+    _bk_raw = _eo.get("bankers") if _eo.get("bankers") else E.get("Bankers")
+    if isinstance(_bk_raw,(list,tuple)):
+        bankers=[str(b).strip() for b in _bk_raw if str(b).strip()]
+    else:
+        bankers=[b.strip() for b in str(_bk_raw or "").replace("\r","").split("\n") if b.strip()]
+    if not bankers: bankers=["Banker details to be confirmed"]
     entity={"name":name,"short_name":name.split()[0],"name_line2":" ".join(name.split()[1:]) or "Limited",
             "rc":rc,"activity":activity,"activity_short":activity if not activity.startswith("[") else "[Principal activity to be confirmed]",
             "activity_para":_act_para,
-            "directors":directors or ["Director"],"office":office,"bankers":str(E.get("Bankers") or "Banker details to be confirmed"),
+            "directors":directors or ["Director"],"office":office,"bankers":bankers,
             "auditor":auditor,"auditor_name":auditor_name,"city":str(C.get("City / State") or "Lagos, Nigeria")}
     meta={"mode":mode,"template":template,"entity_name":name,"short_name":entity["short_name"],"name_line2":entity["name_line2"],
           "activity_short":entity["activity_short"],"rc":rc,"auditor":auditor,"auditor_name":auditor_name,
@@ -267,8 +274,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
           "stamp_image":stamp_image,"signature_image":signature_image,"total_pages":19}
     flags=[]
     if activity.startswith("["): flags.append("Principal activity not set in the workbook.")
-    bk=str(E.get("Bankers") or "").strip().lower()
-    if not bk or "to be confirmed" in bk: flags.append("Bankers not provided.")
+    if any("to be confirmed" in b.lower() for b in bankers): flags.append("Bankers not provided.")
     scale=str(C.get("Presentation scale") or "")
     if "000" in scale: flags.append("Presentation scale is labelled \u20a6'000 but figures appear to be full Naira \u2014 verify scale.")
     try:
@@ -279,7 +285,8 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     if _uncoded:
         flags.append("Current-year line-item detail is not coded in the trial balance for: "
                      + ", ".join(_uncoded[:10])
-                     + ". These notes show the prior year only until the current-year TB is coded to the account codes. (Preparer note \u2014 not shown in the financial statements.)")
-    data={"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,"flags":flags}
-    data["tie_outs"]=[{"name":n,"pass":bool(ok)} for n,ok in tie_outs(soci,sofp,scf,soce)]
-    return data
+                     + ". These notes show the prior year only until the current-year trial balance is coded. (This note is for the preparer and does not appear in the financial statements.)")
+    return {"entity":entity,"meta":meta,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,
+            "notes":notes,
+            "tie_outs":[{"name":n,"pass":bool(p)} for n,p in tie_outs(soci,sofp,scf,soce)],
+            "flags":flags}
