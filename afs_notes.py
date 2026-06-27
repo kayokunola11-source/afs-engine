@@ -53,17 +53,21 @@ def read_fig_note(ws, tb=None):
         if not bs: continue
         bl=bs.lower()
         if bl=="description" or code.lower()=="code": continue
+        if bs.upper().startswith("RECONCILIATION"): break    # stop before internal recon section
         if (bl.startswith("the ") or bl.startswith("tip") or "auto-pull" in bl or "must = 0" in bl
                 or bs.upper().startswith("CHECK") or "difference" in bl or "reconcil" in bl
                 or " per note" in bl or "per ls" in bl or "per tb" in bl or "per sofp" in bl
-                or "per soci" in bl or "row 9" in bl or "row 30" in bl):
+                or "per soci" in bl or "per ppe" in bl or "from tb" in bl or "(auto" in bl
+                or "h column" in bl or "investigate" in bl or "target =" in bl
+                or "row 9" in bl or "row 30" in bl):
             continue
         if bl.startswith("total"):
             total_label=bs; continue
-        if tb and code and code in tb:
+        cyv=_f(cy) or 0; pyv=_f(py) or 0
+        # prefer the sheet's own value (keeps correct signs on net/contra lines);
+        # fall back to the TB by code only when the sheet line is blank/zero (SUMIFS->0 case)
+        if tb and code and code in tb and abs(cyv)<1 and abs(pyv)<1:
             cyv,pyv=tb[code]
-        else:
-            cyv=_f(cy) or 0; pyv=_f(py) or 0
         items.append([bs, cyv, pyv])
     line_items=[r for r in items if abs(r[1])>=1 or abs(r[2])>=1]
     if not line_items:

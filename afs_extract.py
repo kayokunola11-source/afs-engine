@@ -145,6 +145,18 @@ def tie_outs(soci,sofp,scf,soce):
         ("Cash flow = SOFP cash", abs(scf_end-sofp_cash)<1),
     ]
 
+def _build_fin_summary(wb):
+    if "FinSum" not in wb.sheetnames: return None
+    fs=wb["FinSum"]
+    yrs=[fs.cell(4,c).value for c in range(3,8)]
+    headers=["\u20a6'000"]+[ (str(int(y)) if isinstance(y,(int,float)) else (str(y) if y else "")) for y in yrs]
+    rows=[]
+    for r in range(6,20):
+        lbl=fs.cell(r,2).value
+        if not lbl or not str(lbl).strip(): continue
+        rows.append([str(lbl).strip()]+[fs.cell(r,c).value for c in range(3,8)])
+    return {"headers":headers,"rows":rows,"money_from":1} if rows else None
+
 def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
              auditor="[Audit Firm Name]", auditor_name="[Audit Firm Name]",
              frc_no="", ican_stamp_no="", stamp_image=None, signature_image=None, entity_overrides=None):
@@ -180,6 +192,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
     _mode=str(C.get("Mode") or C.get("Reporting mode") or "").lower()
     if "full ifrs" in _mode:                       # SEC fund managers etc. report under full IFRS
         fw,fws="International Financial Reporting Standards (IFRS)","IFRS"
+    fin_summary=None
     n_sig=max(1,min(n_sig,max(1,len(directors))))
 
     soci=_read_statement(wb["SOCI"]); sofp=_read_statement(wb["SOFP"])
@@ -248,6 +261,18 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
             _uncoded.append(_nd["title"].split(". ",1)[-1])
     _gc=6+len(_fignotes)
     notes=narr+_fignotes+[{"title":f"{_gc}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]}]
+    if "full ifrs" in _mode:
+        import afs_ifrs
+        _tb=afs_notes.build_tb_index(wb)
+        notes,_iref=afs_ifrs.build_ifrs_notes(wb, _tb)
+        afs_notes.remap_statement_refs(soci,_iref); afs_notes.remap_statement_refs(sofp,_iref)
+        try:
+            for _r in wb["SOCI"].iter_rows(min_row=4,max_row=30,max_col=5,values_only=True):
+                _lab=str(_r[1]).strip() if _r[1] else ""
+                if _lab.lower().startswith("basic earnings per share"):
+                    soci.append({"label":_lab,"note":"","cy":_r[3],"py":_r[4],"kind":"normal"}); break
+        except Exception: pass
+        fin_summary=_build_fin_summary(wb)
     # Asset-management workbooks carry their own full notes -> use them
     if ("Capital_Adequacy" in wb.sheetnames or "AUM_Schedule" in wb.sheetnames
             or "asset manager" in str(C.get("Entity type") or "").lower()):
@@ -292,6 +317,6 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
                      + ", ".join(_uncoded[:10])
                      + ". These notes show the prior year only until the current-year trial balance is coded. (This note is for the preparer and does not appear in the financial statements.)")
     return {"entity":entity,"meta":meta,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,
-            "notes":notes,
+            "notes":notes,"fin_summary":fin_summary,
             "tie_outs":[{"name":n,"pass":bool(p)} for n,p in tie_outs(soci,sofp,scf,soce)],
             "flags":flags}

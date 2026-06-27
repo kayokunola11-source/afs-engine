@@ -151,6 +151,38 @@ def note_table(pairs,first_year=False,cy_year="",py_year=""):
                            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+styles))
     return t
 
+def grid_table(g):
+    """Generic multi-column schedule (IFRS notes). g = {headers, rows, money_from, bold_last}.
+    Numeric cells in columns >= money_from are right-aligned and money-formatted; a row whose
+    last element is the string 'total' is bolded with a rule."""
+    headers=g["headers"]; rows=g["rows"]; mf=g.get("money_from",1); bl=g.get("bold_last",False)
+    ncol=len(headers)
+    data=[list(headers)]
+    st=[("FONTNAME",(0,0),(-1,0),"DVB"),("FONTSIZE",(0,0),(-1,0),7.4),("TEXTCOLOR",(0,0),(-1,0),NAVY2),
+        ("ALIGN",(mf,0),(-1,0),"RIGHT"),("LINEBELOW",(0,0),(-1,0),0.6,NAVY2),("BOTTOMPADDING",(0,0),(-1,0),3)]
+    n=len(rows)
+    for idx,row in enumerate(rows):
+        cells=list(row)
+        kind=cells[-1] if (len(cells)>ncol and isinstance(cells[-1],str)) else None
+        if kind is not None: cells=cells[:ncol]
+        out=[]
+        for i,c in enumerate(cells):
+            if i>=mf and isinstance(c,(int,float)): out.append(money(c))
+            else: out.append(str(c) if c is not None else "")
+        while len(out)<ncol: out.append("")
+        data.append(out); ri=len(data)-1
+        st+=[("ALIGN",(mf,ri),(-1,ri),"RIGHT"),("TOPPADDING",(0,ri),(-1,ri),1.8),("BOTTOMPADDING",(0,ri),(-1,ri),1.8)]
+        if kind=="total" or (bl and idx==n-1):
+            st+=[("FONTNAME",(0,ri),(-1,ri),"DVB"),("TEXTCOLOR",(0,ri),(-1,ri),NAVY),
+                 ("LINEABOVE",(mf,ri),(-1,ri),0.5,colors.black),("LINEBELOW",(mf,ri),(-1,ri),0.8,NAVY)]
+    fixed=(22*mm if ncol>3 else 32*mm)
+    w0=PAGE_W-LM-RM-fixed*(ncol-1)
+    if w0<38*mm: w0=38*mm
+    t=Table(data,colWidths=[w0]+[fixed]*(ncol-1))
+    t.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"DV"),("FONTSIZE",(0,0),(-1,-1),7.7),
+                           ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+st))
+    return t
+
 def soce_table(rows,first_year=False):
     data=[["","Share capital","Retained earnings","Total equity"]]
     styles=[("FONTNAME",(0,0),(-1,0),"DVB"),("ALIGN",(1,0),(-1,0),"RIGHT"),("TEXTCOLOR",(0,0),(-1,0),NAVY2),
@@ -338,13 +370,24 @@ def build(data,out_path):
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 10 notes
     for x in heading("Notes to the Financial Statements",f"For the year ended {M['period_end']}"): A(x)
+    _py=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "")
     for note in data["notes"]:
         block=[Paragraph(note["title"],h2)]
         for p in note.get("paras",[]): block.append(Paragraph(p,body))
-        if note.get("paras") and note.get("table"): block.append(Spacer(1,2))
-        if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first,(M["fy"] or ""),(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "")))
+        if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first,(M["fy"] or ""),_py))
         if note.get("ppe"): block.append(Spacer(1,2)); block.append(ppe_table(note["ppe"],fy_first))
-        A(KeepTogether(block)); A(Spacer(1,10))
+        A(KeepTogether(block))
+        for g in (note.get("grids") or []):
+            sg=[]
+            if g.get("subhead"): sg.append(Paragraph("<b>"+g["subhead"]+"</b>",body))
+            sg.append(grid_table(g))
+            A(Spacer(1,3)); A(KeepTogether(sg))
+        A(Spacer(1,10))
+    if data.get("fin_summary"):
+        A(PageBreak())
+        for x in heading("Five-Year Financial Summary"): A(x)
+        A(grid_table(data["fin_summary"]))
+        A(Spacer(1,6)); A(Paragraph("The five-year financial summary does not form part of the audited financial statements.",small_i))
     doc.build(el)
 
 if __name__=="__main__":
