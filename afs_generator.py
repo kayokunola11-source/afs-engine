@@ -78,7 +78,7 @@ def header_footer(c,doc):
     c.line(LM,PAGE_H-17*mm,PAGE_W-RM,PAGE_H-17*mm)
     c.setStrokeColor(LGREY); c.setLineWidth(0.4); c.line(LM,BM+4*mm,PAGE_W-RM,BM+4*mm)
     c.setFont("DVI",7); c.setFillColor(GREY)
-    c.drawString(LM,BM,st.get('footer_text') or st['auditor'])
+    c.drawString(LM,BM, st.get('auditor') or '')   # footer always shows the firm name (never free-text/address)
     c.drawCentredString(PAGE_W/2,BM,f"Page {doc.page} of {st['total_pages']}")
     c.drawRightString(PAGE_W-RM,BM,"Strictly Confidential"); c.restoreState()
 
@@ -376,8 +376,14 @@ def build(data,out_path):
         for p in note.get("paras",[]): block.append(Paragraph(p,body))
         if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first,(M["fy"] or ""),_py))
         if note.get("ppe"): block.append(Spacer(1,2)); block.append(ppe_table(note["ppe"],fy_first))
+        grids=note.get("grids") or []
+        start=0
+        if grids and not note.get("table") and not note.get("ppe"):
+            g=grids[0]                                  # keep the heading with its first schedule
+            if g.get("subhead"): block.append(Spacer(1,2)); block.append(Paragraph("<b>"+g["subhead"]+"</b>",body))
+            block.append(grid_table(g)); start=1
         A(KeepTogether(block))
-        for g in (note.get("grids") or []):
+        for g in grids[start:]:
             sg=[]
             if g.get("subhead"): sg.append(Paragraph("<b>"+g["subhead"]+"</b>",body))
             sg.append(grid_table(g))

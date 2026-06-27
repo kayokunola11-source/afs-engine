@@ -72,6 +72,16 @@ def read_fig_note(ws, tb=None):
     line_items=[r for r in items if abs(r[1])>=1 or abs(r[2])>=1]
     if not line_items:
         return [[total_label or "Total", 0, 0, "total"]]   # uncoded -> fill_uncoded_totals handles
+    # movement note (PPE / intangibles / retained earnings): a closing/NBV line is the balance,
+    # so bold it and do NOT sum the lines above it
+    CLOSE=("closing balance","net book value","- closing","carried forward","c/f")
+    close_idx=None
+    for i,r in enumerate(line_items):
+        if any(k in r[0].lower() for k in CLOSE): close_idx=i
+    if close_idx is not None:
+        out=[list(r) for r in line_items]
+        out[close_idx]=[line_items[close_idx][0], line_items[close_idx][1], line_items[close_idx][2], "total"]
+        return out
     tcy=sum(r[1] for r in line_items); tpy=sum(r[2] for r in line_items)
     return line_items + [[total_label or "Total", tcy, tpy, "total"]]
 
@@ -96,6 +106,7 @@ CANON=[
  ("finance","Finance Cost","Note_09_FinanceCost",["finance cost"],None),
  ("tax","Taxation","Note_17_TaxPayable",["taxation","provision for tax","current tax payable"],None),
  ("ppe","Property, Plant and Equipment","PPE_Schedule",["property, plant","property plant"],"ppe"),
+ ("intang","Intangible Assets","Note_10a_Intangibles",["intangible"],None),
  ("recv","Trade and Other Receivables","Note_11_TradeReceivables",["receivable"],None),
  ("cash","Cash and Cash Equivalents","Note_12_Cash",["cash and cash","cash & cash"],None),
  ("sharecap","Share Capital","Note_13_ShareCapital",["share capital"],None),

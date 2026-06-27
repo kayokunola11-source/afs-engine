@@ -2,7 +2,7 @@
 """Generic extractor: read a recalculated firm-template workbook into the data dict
 that afs_generator.build expects. Works on any client using the standard template
 (sheets: Entity, Cover, SOCI, SOFP, SCF, SOCE, Note_10_PPE, ...)."""
-import datetime, openpyxl
+import datetime, re, openpyxl
 
 TEMPLATES = {
     "SME":          ("International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs)","IFRS for SMEs"),
@@ -13,6 +13,7 @@ TEMPLATES = {
     "Fund Manager":     ("International Financial Reporting Standards (IFRS)","IFRS"),
 }
 SIG_WORDS={1:"one",2:"two",3:"three",4:"four"}
+CURRENT_TEMPLATE_VERSION = 1   # bump when the master template changes
 SECTION_A={"ASSETS","EQUITY AND LIABILITIES"}
 SECTION_B={"Non-current assets","Current assets","Equity","Non-current liabilities","Current liabilities"}
 SCF_SECTION={"Cash flows from operating activities","Cash flows from investing activities","Cash flows from financing activities"}
@@ -167,7 +168,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
             ican_stamp_no=ican_stamp_no, stamp_image=stamp_image, signature_image=signature_image,
             entity_overrides=entity_overrides)
     wb=openpyxl.load_workbook(xlsx_path, data_only=True)
-    E=_sheet_map(wb["Entity"]); C=_sheet_map(wb["Cover"])
+    E=_sheet_map(wb["Entity"]); C=_sheet_map(wb["Cover"], maxr=60)
     name=str(E.get("Registered name") or "Company").strip()
     rc=str(E.get("RC / Business name no.") or "").strip()
     directors=[d.strip() for d in str(E.get("Directors / Partners / Proprietor") or "").split("\n") if d.strip()]
@@ -190,7 +191,8 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
         first_year=str(C.get("First year of operations?") or "No").strip().lower().startswith("y")
     fw,fws=TEMPLATES.get(template,TEMPLATES["SME"])
     _mode=str(C.get("Mode") or C.get("Reporting mode") or "").lower()
-    if "full ifrs" in _mode:                       # SEC fund managers etc. report under full IFRS
+    _full_ifrs = ("full ifrs" in _mode) or ("full ifrs" in str(template).lower())
+    if _full_ifrs:                                  # full IFRS reporters (Cover mode OR app selection)
         fw,fws="International Financial Reporting Standards (IFRS)","IFRS"
     fin_summary=None
     n_sig=max(1,min(n_sig,max(1,len(directors))))
@@ -261,18 +263,41 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
             _uncoded.append(_nd["title"].split(". ",1)[-1])
     _gc=6+len(_fignotes)
     notes=narr+_fignotes+[{"title":f"{_gc}. Going Concern","paras":["The Directors have assessed the Company's ability to continue as a going concern and have a reasonable expectation that it has adequate resources to continue in operational existence for the foreseeable future. Accordingly, the going-concern basis has been adopted."]}]
-    if "full ifrs" in _mode:
+    if _full_ifrs:
         import afs_ifrs
         _tb=afs_notes.build_tb_index(wb)
         notes,_iref=afs_ifrs.build_ifrs_notes(wb, _tb)
         afs_notes.remap_statement_refs(soci,_iref); afs_notes.remap_statement_refs(sofp,_iref)
+        # --- omit immaterial nil notes; keep required narrative notes; renumber continuously ---
+        _refd={str(r.get("note","")).strip() for r in (soci+sofp) if str(r.get("note","")).strip()}
+        _ALWAYS={"1","2","3","4","23","24","25"}        # always-disclosed (policies, related parties, risk, events)
+        _NILTXT={"23":"There were no related party transactions requiring disclosure during the year (prior year: nil)."}
+        _kept=[]
+        for _nd in notes:
+            _mm=re.match(r"(\d+[a-z]?)\.", _nd["title"]); _num=_mm.group(1) if _mm else ""
+            _empty=not (_nd.get("table") or _nd.get("grids") or _nd.get("ppe") or _nd.get("paras"))
+            if _empty and _num not in _ALWAYS and _num not in _refd:
+                continue                                # drop nil note that nothing references
+            if _empty:
+                _nd["paras"]=[_NILTXT.get(_num,"There were no balances under this heading at the reporting date (prior year: nil).")]
+            _kept.append(_nd)
+        _newmap={}; _i=0
+        for _nd in _kept:
+            _mm=re.match(r"(\d+[a-z]?)\.", _nd["title"]); _old=_mm.group(1) if _mm else ""
+            _i+=1; _new=str(_i)
+            _nd["title"]=re.sub(r"^\d+[a-z]?\.", _new+".", _nd["title"], count=1)
+            if _old: _newmap[_old]=_new
+        _newref=[(kws, str(_newmap.get(str(old), old))) for kws,old in _iref]
+        afs_notes.remap_statement_refs(soci,_newref); afs_notes.remap_statement_refs(sofp,_newref)
+        notes=_kept
         try:
             for _r in wb["SOCI"].iter_rows(min_row=4,max_row=30,max_col=5,values_only=True):
                 _lab=str(_r[1]).strip() if _r[1] else ""
                 if _lab.lower().startswith("basic earnings per share"):
                     soci.append({"label":_lab,"note":"","cy":_r[3],"py":_r[4],"kind":"normal"}); break
         except Exception: pass
-        fin_summary=_build_fin_summary(wb)
+        if not first_year:                              # 5-yr summary only when there is history
+            fin_summary=_build_fin_summary(wb)
     # Asset-management workbooks carry their own full notes -> use them
     if ("Capital_Adequacy" in wb.sheetnames or "AUM_Schedule" in wb.sheetnames
             or "asset manager" in str(C.get("Entity type") or "").lower()):
@@ -303,6 +328,12 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
           "results_para":results_para,"ppe_para":ppe_para,"frc_no":frc_no,"ican_stamp_no":ican_stamp_no,
           "stamp_image":stamp_image,"signature_image":signature_image,"total_pages":19}
     flags=[]
+    _tver=str(C.get("Template version") or C.get("Template Version") or "").strip()
+    _m=re.search(r"\d+", _tver); _tv=int(_m.group()) if _m else 0
+    meta["template_version"]=_tver or None
+    if _tv==0:
+        flags.append("This workbook has no template version on the Cover \u2014 it may be an outdated or non-standard template. Download the current template from the app.")
+    # (stale-vs-current comparison is done app-side, against the published current version)
     if activity.startswith("["): flags.append("Principal activity not set in the workbook.")
     if any("to be confirmed" in b.lower() for b in bankers): flags.append("Bankers not provided.")
     scale=str(C.get("Presentation scale") or "")

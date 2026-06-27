@@ -270,6 +270,35 @@ _REF = [
 ]
 
 
+def _grid_has_data(g):
+    """True if any money cell in the grid is non-trivial (>= 1 in magnitude)."""
+    mf = g.get("money_from", 1)
+    for row in g.get("rows", []):
+        for c in row[mf:]:
+            if isinstance(c, (int, float)) and abs(c) >= 1:
+                return True
+    return False
+
+
+def _polish(notes):
+    """Top-1% polish: drop all-zero schedules; give a short nil narrative to empty notes."""
+    for nd in notes:
+        if nd.get("grids"):
+            kept = [g for g in nd["grids"] if _grid_has_data(g)]
+            if kept:
+                nd["grids"] = kept
+            else:
+                nd.pop("grids", None)
+        # re-letter surviving sub-schedules sequentially: (a), (b), (c) ...
+        i = 0
+        for g in (nd.get("grids") or []):
+            sh = g.get("subhead")
+            if sh and re.match(r"^\([a-z]\)\s", sh):
+                g["subhead"] = re.sub(r"^\([a-z]\)", f"({chr(97 + i)})", sh, count=1)
+                i += 1
+    return notes
+
+
 def build_ifrs_notes(wb, tb=None):
     master = read_master_notes(wb)
 
@@ -336,7 +365,7 @@ def build_ifrs_notes(wb, tb=None):
     # 25 events after the reporting period (narrative)
     notes.append(note(25, "Events after the reporting period"))
 
-    return notes, _REF
+    return _polish(notes), _REF
 
 
 def _as_rows(tbl):
