@@ -91,7 +91,8 @@ def _movement_note(wb, tb, sheet_kw, close_kw):
             break
         if (bl.startswith("total") or "from tb" in bl or "(auto" in bl or "h column" in bl
                 or "per " in bl or "difference" in bl or "reconcil" in bl or "investigate" in bl
-                or "target =" in bl or bl.startswith("tip") or "must = 0" in bl):
+                or "target =" in bl or bl.startswith("tip") or "must = 0" in bl
+                or bl.startswith("refer ") or "see ppe_schedule" in bl or "asset-class movement" in bl):
             continue
         cy = tb[code][0] if (tb and code in tb) else _f(r[2])
         py = tb[code][1] if (tb and code in tb) else _f(r[3])
@@ -260,7 +261,7 @@ _FIG_MAP = {
 _REF = [
     (["revenue", "turnover"], 5), (["cost of sale"], 6), (["other income"], 7),
     (["administ"], 8), (["selling"], 8), (["finance cost"], 9),
-    (["property", "plant"], 10), (["intangible"], 10), (["investment"], 11),
+    (["property", "plant"], 10), (["intangible"], "10a"), (["investment"], 11),
     (["deferred tax"], 12), (["inventory"], 13), (["receivable", "prepay"], 14),
     (["cash"], 15), (["share capital", "share premium"], 16),
     (["retained", "capital reserve"], 17), (["loan", "borrow"], 18),
@@ -304,6 +305,12 @@ def build_ifrs_notes(wb, tb=None):
     # 10 PPE (summary + schedule)
     ppe_tbl = _movement_note(wb, tb, "note_10_ppe", "net book value")
     notes.append(note(10, "Property, plant and equipment", table=ppe_tbl))
+    # 10a Intangible assets (IAS 38) - movement schedule, when present
+    intang = _movement_note(wb, tb, "intangibles", "net book value")
+    if intang:
+        notes.append({"title": "10a. Intangible assets",
+                      "paras": ["Internally developed software capitalised under IAS 38 and amortised on a straight-line basis over its estimated useful life of five years (20% per annum). Development costs meeting the recognition criteria are capitalised; research and maintenance costs are expensed as incurred."],
+                      "table": intang})
     # 11-13
     notes.append(note(11, "Investments"))
     notes.append(note(12, "Deferred taxation", grids=_deferred_tax_grids(wb)))
