@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-28-audit-v21"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-06-28-branding-observe-v22"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -162,6 +162,23 @@ async def generate(
         if firm_frc and not frc_no: m["frc_no"] = firm_frc
         if logo_path: m["logo_image"]    = logo_path
 
+        # ---- branding observability (so app<->engine is never a guessing game) ----
+        branding_received = {
+            "auditor_name":  b_auditor or "",
+            "primary_color": b_primary or "",
+            "accent_color":  b_accent or "",
+            "logo":          bool(logo_path),
+            "footer_text":   b_footer or "",
+            "frc_no":        (firm_frc or frc_no or ""),
+        }
+        _brand_flags = []
+        if not b_auditor:
+            _brand_flags.append("Firm name NOT received by the engine on this request \u2014 the document used the default '[Audit Firm Name]'. The app must send firm_auditor_name (or firm_name) on generate.")
+        if not b_primary and not b_accent:
+            _brand_flags.append("Firm colours NOT received \u2014 the document used the default navy/gold. The app must send firm_primary_color / firm_accent_color (hex) on generate.")
+        print(f"[BRANDING] auditor={b_auditor!r} primary={b_primary!r} accent={b_accent!r} "
+              f"logo={bool(logo_path)} footer={bool(b_footer)} frc={(firm_frc or frc_no)!r}", flush=True)
+
         out = os.path.join(work, "afs.pdf")
         afs_generator.build(data, out)                       # pass 1
         try:
@@ -189,7 +206,8 @@ async def generate(
             "pdf_base64": base64.b64encode(pdf).decode("ascii"),
             "extracted":  extracted,
             "tie_outs":   data["tie_outs"],          # [{"name","pass"}] x5, Lovable's names
-            "flags":      data.get("flags", []),
+            "flags":      list(data.get("flags", [])) + _brand_flags,
+            "branding_received": branding_received,
             "mode":       mode,
             "template_version": data["meta"].get("template_version"),
             "page_count": data["meta"].get("total_pages"),
