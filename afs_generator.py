@@ -151,6 +151,31 @@ def note_table(pairs,first_year=False,cy_year="",py_year=""):
                            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+styles))
     return t
 
+def cit_table(rows, cy_year="", py_year=""):
+    """Tax-computation style schedule: label | CY | PY, with sections, subtotals and a final total."""
+    data=[["",str(cy_year),str(py_year)],["","\u20a6","\u20a6"]]
+    st=[("FONTNAME",(0,0),(-1,1),"DVB"),("ALIGN",(1,0),(-1,1),"RIGHT"),("FONTSIZE",(0,0),(-1,0),8.5),
+        ("TEXTCOLOR",(0,0),(-1,0),NAVY2),("FONTSIZE",(0,1),(-1,1),9),("LINEBELOW",(0,1),(-1,1),0.5,LGREY),
+        ("BOTTOMPADDING",(0,0),(-1,0),1),("TOPPADDING",(0,1),(-1,1),0)]
+    for r in rows:
+        k=r.get("kind","normal")
+        if k=="section":
+            data.append([r["label"],"",""]); ri=len(data)-1
+            st+=[("FONTNAME",(0,ri),(-1,ri),"DVB"),("TEXTCOLOR",(0,ri),(0,ri),NAVY2),
+                 ("TOPPADDING",(0,ri),(-1,ri),4),("BOTTOMPADDING",(0,ri),(-1,ri),1)]; continue
+        data.append([r["label"],money(r["cy"]),money(r["py"])]); ri=len(data)-1
+        st+=[("ALIGN",(1,ri),(-1,ri),"RIGHT"),("TOPPADDING",(0,ri),(-1,ri),2),("BOTTOMPADDING",(0,ri),(-1,ri),2)]
+        if r.get("indent"): st.append(("LEFTPADDING",(0,ri),(0,ri),16))
+        if k in ("subtotal","total"):
+            st+=[("FONTNAME",(0,ri),(-1,ri),"DVB"),("LINEABOVE",(1,ri),(-1,ri),0.6,colors.black)]
+        if k=="total":
+            st+=[("LINEBELOW",(1,ri),(-1,ri),1.1,NAVY),("TEXTCOLOR",(0,ri),(-1,ri),NAVY)]
+    w0=PAGE_W-LM-RM-34*mm-34*mm
+    t=Table(data,colWidths=[w0,34*mm,34*mm])
+    t.setStyle(TableStyle([("FONTNAME",(0,0),(-1,-1),"DV"),("FONTSIZE",(0,0),(-1,-1),9.3),
+                           ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+st))
+    return t
+
 def grid_table(g):
     """Generic multi-column schedule (IFRS notes). g = {headers, rows, money_from, bold_last}.
     Numeric cells in columns >= money_from are right-aligned and money-formatted; a row whose
@@ -394,6 +419,19 @@ def build(data,out_path):
         for x in heading("Five-Year Financial Summary"): A(x)
         A(grid_table(data["fin_summary"]))
         A(Spacer(1,6)); A(Paragraph("The five-year financial summary does not form part of the audited financial statements.",small_i))
+    _ts=data.get("tax_schedules")
+    if _ts:
+        _py3=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "")
+        A(PageBreak())
+        A(Paragraph("Supplementary Schedules",h1))
+        A(Paragraph("The following schedules are prepared for taxation purposes and do not form part of the audited financial statements.",small_i))
+        A(Spacer(1,10))
+        if _ts.get("cit"):
+            for x in heading(_ts["cit"]["title"], _ts["cit"].get("subtitle")): A(x)
+            A(cit_table(_ts["cit"]["rows"], (M["fy"] or ""), _py3)); A(Spacer(1,14))
+        if _ts.get("capallow"):
+            for x in heading(_ts["capallow"]["title"]): A(x)
+            A(grid_table({"headers":_ts["capallow"]["headers"],"rows":_ts["capallow"]["rows"],"money_from":2}))
     doc.build(el)
 
 if __name__=="__main__":

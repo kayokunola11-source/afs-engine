@@ -1,3 +1,4 @@
+import re
 # -*- coding: utf-8 -*-
 """Detailed notes for the SME / full template: read the workbook's own Note_XX figure
 sheets + PPE_Schedule, number the notes sequentially, and remap the statement note
@@ -162,3 +163,11 @@ def fill_uncoded_totals(notes, stmt_rows):
                 cy+=sr.get("cy") or 0; py+=sr.get("py") or 0
         if abs(cy)>=1 or abs(py)>=1:
             nd["table"]=[[f"Total {nd['_title'].lower()}", abs(cy), abs(py), "total"]]
+
+
+def clean_para(p):
+    """Strip internal cross-references that must not appear in a client document."""
+    if not p: return p
+    p=re.sub(r"\s*\(see [^)]*[A-Za-z]+_[A-Za-z][^)]*\)", "", p)   # "(see Some_Sheet ...)"
+    p=re.sub(r"\s*\b[Mm]ode:\s*\S.*$", "", p)                    # trailing "Mode: ..."
+    return p.strip()

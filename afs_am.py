@@ -2,6 +2,7 @@
 """Asset-management notes reader. For SEC fund-manager workbooks that carry their own
 Notes narrative + Note_XX figure sheets + Capital Adequacy schedule."""
 import re
+import afs_notes
 
 def _num(v):
     return v if isinstance(v,(int,float)) else None
@@ -53,7 +54,7 @@ def build_am_notes(wb):
             title=re.split(r'\s*[—-]\s*see', a_s)[0].strip()
             cur={"title":title,"paras":[],"ref":(ref.group(0) if ref else None)}
         elif b_s and cur is not None and cur["ref"] is None:
-            cur["paras"].append(b_s)
+            cur["paras"].append(afs_notes.clean_para(b_s))
     if cur: raw.append(cur)
     # build generator-ready notes
     out=[]

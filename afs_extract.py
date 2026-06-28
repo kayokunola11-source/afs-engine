@@ -158,6 +158,87 @@ def _build_fin_summary(wb):
         rows.append([str(lbl).strip()]+[fs.cell(r,c).value for c in range(3,8)])
     return {"headers":headers,"rows":rows,"money_from":1} if rows else None
 
+def _tax_schedules(wb):
+    """Read the CIT tax computation and capital-allowances schedules (supplementary)."""
+    out={}
+    _JUNK=("enter ","pull ","prior-year","column","must =","tip","target","i13","h column",
+           "per asset","(auto","see ","investigate","reconcil","from tb","cap at","capped at if")
+    def _is_junk(lab):
+        ll=lab.lower()
+        return (len(lab)>46 or any(j in ll for j in _JUNK)) and not ll.startswith(("total","adjusted",
+                "assessable","taxable","companies income","tertiary","development","police"))
+    names={sn.lower():sn for sn in wb.sheetnames}
+    cit=names.get("cit")
+    if cit:
+        ws=wb[cit]; rows=[]
+        for r in range(6,46):
+            lab=ws.cell(r,2).value
+            if lab is None or not str(lab).strip(): continue
+            raw=str(lab); lab=raw.strip(); low=lab.lower()
+            if low.startswith("(capped") or _is_junk(lab): continue
+            cyn=_num(ws.cell(r,3).value); pyn=_num(ws.cell(r,4).value)
+            indent=raw[:1]==" "
+            if cyn is None and pyn is None:
+                rows.append({"label":lab,"cy":0,"py":0,"kind":"section"}); continue
+            kind="normal"
+            if low.startswith(("adjusted profit","assessable profit","taxable income")): kind="subtotal"
+            if low.startswith("total tax payable"): kind="total"
+            rows.append({"label":lab,"cy":cyn or 0,"py":pyn or 0,"kind":kind,"indent":indent})
+            if kind=="total": break
+        if any(r["kind"]!="section" and (abs(r["cy"])>0 or abs(r["py"])>0) for r in rows):
+            out["cit"]={"title":str(ws.cell(1,1).value or "Companies Income Tax Computation").strip(),
+                        "subtitle":(str(ws.cell(3,1).value).strip() if ws.cell(3,1).value else None),"rows":rows}
+    ca=names.get("capallow") or names.get("cap all") or names.get("capital allowance")
+    if ca:
+        ws=wb[ca]; rows=[]
+        for r in range(6,26):
+            cls=ws.cell(r,2).value
+            if cls is None or not str(cls).strip(): continue
+            label=str(cls).strip()
+            if _is_junk(label): continue
+            vals=[ws.cell(r,c).value for c in range(3,9)]
+            row=[label]+[(v if isinstance(v,str) else (_num(v) or 0)) for v in vals]
+            if label.upper()=="TOTAL": row.append("total")
+            rows.append(row)
+        if rows:
+            out["capallow"]={"title":str(ws.cell(1,1).value or "Capital Allowance Computation").strip(),
+                             "headers":["Asset class","Rate","TWDV b/f","Additions","Initial","Annual","Total (CY)"],
+                             "rows":rows}
+    return out or None
+
+def _renumber_continuous(notes, statement_lists):
+    mp={}
+    for i,nd in enumerate(notes,1):
+        m=re.match(r"(\d+[a-z]?)\.\s*(.*)", nd.get("title",""))
+        if not m: continue
+        old=m.group(1); new=str(i); nd["title"]=f"{new}. {m.group(2)}"; mp[old]=new
+    for rows in statement_lists:
+        for r in rows:
+            nt=str(r.get("note","")).strip()
+            if nt in mp: r["note"]=mp[nt]
+
+def _sub_placeholders(notes, name, rc):
+    rc_clean = rc if (rc and "[" not in rc) else "[RC to be confirmed]"
+    for nd in notes:
+        out=[]
+        for para in nd.get("paras",[]):
+            para=re.sub(r"\[[^\]]*(?:entity|company|gaming)\s*name[^\]]*\]", name or "the Company", para, flags=re.I)
+            para=re.sub(r"RC\s*\[[^\]]*\]", rc_clean, para)
+            para=re.sub(r"\[[^\]]*to\s*(?:be\s*)?confirm[^\]]*\]", "[to be confirmed]", para, flags=re.I)
+            out.append(para)
+        if out: nd["paras"]=out
+
+def _blank_dangling_refs(rows_lists, notes):
+    have=set()
+    for nd in notes:
+        mm=re.match(r"(\d+[a-z]?)", nd.get("title",""))
+        if mm: have.add(mm.group(1))
+    for rows in rows_lists:
+        for r in rows:
+            nt=str(r.get("note","")).strip()
+            if nt and nt not in have:
+                r["note"]=""
+
 def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
              auditor="[Audit Firm Name]", auditor_name="[Audit Firm Name]",
              frc_no="", ican_stamp_no="", stamp_image=None, signature_image=None, entity_overrides=None):
@@ -303,7 +384,7 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
             or "asset manager" in str(C.get("Entity type") or "").lower()):
         import afs_am
         _am=afs_am.build_am_notes(wb)
-        if _am: notes=_am
+        if _am: notes=_am; _renumber_continuous(notes,[soci,sofp])
 
     _ph = (not activity) or activity.startswith("[") or any(w in activity.lower() for w in ("to be completed","to be confirmed","tbc"))
     _act_para = ("The principal activity of the Company during the year is to be confirmed by the Directors."
@@ -347,7 +428,9 @@ def get_data(xlsx_path, mode="draft", first_year=None, n_sig=2, template="SME",
         flags.append("Current-year line-item detail is not coded in the trial balance for: "
                      + ", ".join(_uncoded[:10])
                      + ". These notes show the prior year only until the current-year trial balance is coded. (This note is for the preparer and does not appear in the financial statements.)")
+    _sub_placeholders(notes, name, rc)
+    _blank_dangling_refs([soci,sofp], notes)
     return {"entity":entity,"meta":meta,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,
-            "notes":notes,"fin_summary":fin_summary,
+            "notes":notes,"fin_summary":fin_summary,"tax_schedules":_tax_schedules(wb),
             "tie_outs":[{"name":n,"pass":bool(p)} for n,p in tie_outs(soci,sofp,scf,soce)],
             "flags":flags}

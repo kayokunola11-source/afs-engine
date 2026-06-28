@@ -56,7 +56,9 @@ def read_master_notes(wb):
             out[num] = {"title": _clean_title(f"{num}. {m.group(2).strip()}"), "paras": []}
             continue
         if cur is not None and bcol:
-            out[cur]["paras"].append(bcol)              # policy sub-items + narrative
+            bcol = afs_notes.clean_para(bcol)   # strip internal cross-refs / Mode labels
+            if bcol:
+                out[cur]["paras"].append(bcol)              # policy sub-items + narrative
     return out
 
 

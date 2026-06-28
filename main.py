@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-27-intangibles-v20"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-06-28-audit-v21"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
