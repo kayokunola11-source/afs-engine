@@ -38,8 +38,8 @@ def build_tb_index(wb):
         if c is None or str(c).strip()=="": continue
         code=str(c).strip()
         if code.endswith(".0"): code=code[:-2]
-        cy=abs(g(r,"cy dr")-g(r,"cy cr")); py=abs(g(r,"py dr")-g(r,"py cr"))
-        idx[code]=(cy,py)
+        cy_s=g(r,"cy dr")-g(r,"cy cr"); py_s=g(r,"py dr")-g(r,"py cr")
+        idx[code]=(abs(cy_s),abs(py_s),cy_s,py_s)
     return idx
 
 def read_fig_note(ws, tb=None):
@@ -65,24 +65,39 @@ def read_fig_note(ws, tb=None):
         if bl.startswith("total"):
             total_label=bs; continue
         cyv=_f(cy) or 0; pyv=_f(py) or 0
-        # prefer the sheet's own value (keeps correct signs on net/contra lines);
-        # fall back to the TB by code only when the sheet line is blank/zero (SUMIFS->0 case)
-        if tb and code and code in tb and abs(cyv)<1 and abs(pyv)<1:
-            cyv,pyv=tb[code]
-        items.append([bs, cyv, pyv])
+        items.append([bs, cyv, pyv, code])
+    # Movement notes (PPE / intangibles / retained earnings) carry a closing/NBV balance line.
+    CLOSE=("closing balance","net book value","- closing","carried forward","c/f")
+    is_movement = any(any(k in it[0].lower() for k in CLOSE) for it in items)
+    coded=[it for it in items if it[3] and tb and it[3] in tb]
+    if tb and not is_movement and coded:
+        # If a whole column is zero while the TB has figures, the sheet's SUMIFS broke in LibreOffice
+        # (account codes stored as text). Refill that column from the TB by code. A column that
+        # already has figures is trusted as-is, preserving signs on net/contra lines.
+        cy_broken = all(abs(it[1])<1 for it in coded) and any(abs(tb[it[3]][0])>=1 for it in coded)
+        py_broken = all(abs(it[2])<1 for it in coded) and any(abs(tb[it[3]][1])>=1 for it in coded)
+        cy_mult = -1 if sum(tb[it[3]][2] for it in coded) < 0 else 1   # dominant side positive
+        py_mult = -1 if sum(tb[it[3]][3] for it in coded) < 0 else 1
+        for it in items:
+            if it[3] and tb and it[3] in tb:
+                if cy_broken: it[1]=tb[it[3]][2]*cy_mult
+                if py_broken: it[2]=tb[it[3]][3]*py_mult
+    else:
+        for it in items:
+            if tb and it[3] and it[3] in tb and abs(it[1])<1 and abs(it[2])<1:
+                it[1],it[2]=tb[it[3]][0],tb[it[3]][1]
+    items=[it[:3] for it in items]
     line_items=[r for r in items if abs(r[1])>=1 or abs(r[2])>=1]
     if not line_items:
-        return [[total_label or "Total", 0, 0, "total"]]   # uncoded -> fill_uncoded_totals handles
-    # movement note (PPE / intangibles / retained earnings): a closing/NBV line is the balance,
-    # so bold it and do NOT sum the lines above it
-    CLOSE=("closing balance","net book value","- closing","carried forward","c/f")
-    close_idx=None
-    for i,r in enumerate(line_items):
-        if any(k in r[0].lower() for k in CLOSE): close_idx=i
-    if close_idx is not None:
-        out=[list(r) for r in line_items]
-        out[close_idx]=[line_items[close_idx][0], line_items[close_idx][1], line_items[close_idx][2], "total"]
-        return out
+        return [[total_label or "Total", 0, 0, "total"]]
+    if is_movement:
+        close_idx=None
+        for i,r in enumerate(line_items):
+            if any(k in r[0].lower() for k in CLOSE): close_idx=i
+        if close_idx is not None:
+            out=[list(r) for r in line_items]
+            out[close_idx]=[line_items[close_idx][0], line_items[close_idx][1], line_items[close_idx][2], "total"]
+            return out
     tcy=sum(r[1] for r in line_items); tpy=sum(r[2] for r in line_items)
     return line_items + [[total_label or "Total", tcy, tpy, "total"]]
 
@@ -110,7 +125,7 @@ CANON=[
  ("intang","Intangible Assets","Note_10a_Intangibles",["intangible"],None),
  ("recv","Trade and Other Receivables","Note_11_TradeReceivables",["receivable"],None),
  ("cash","Cash and Cash Equivalents","Note_12_Cash",["cash and cash","cash & cash"],None),
- ("sharecap","Share Capital","Note_13_ShareCapital",["share capital"],None),
+ ("sharecap","Share Capital","Note_13_ShareCapital",["share capital","share premium"],None),
  ("retearn","Retained Earnings","Note_14_RetainedEarnings",["retained earning"],None),
  ("ltloan","Long-term Loans","Note_15_LongTermLoan",["long-term loan","long term loan"],None),
  ("payables","Trade and Other Payables","Note_16_TradePayables",["payable","accrual"],None),
@@ -142,9 +157,12 @@ def remap_statement_refs(rows, ref):
         if r.get("kind") not in (None,"normal"): continue
         lab=r.get("label","").lower()
         if not lab: continue
+        matched=False
         for kws,num in ref:
             if any(k in lab for k in kws):
-                r["note"]=str(num); break
+                r["note"]=str(num); matched=True; break
+        if not matched and str(r.get("note","")).strip():
+            r["note"]=""   # no note covers this line -> drop the stale/colliding reference
     return rows
 
 

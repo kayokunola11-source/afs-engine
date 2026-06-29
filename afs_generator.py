@@ -301,6 +301,8 @@ def build(data,out_path):
         else: A(Paragraph(value,body))
     kv("RC Number",E["rc"]); kv("Directors",E["directors"]); kv("Principal Activity",E["activity"])
     kv("Registered Office",E["office"]); kv("Bankers",E["bankers"]); kv("External Auditor",E["auditor"])
+    _firm_addr = M.get("firm_address") or M.get("firm_city")
+    if _firm_addr: A(Paragraph(_firm_addr, body))
     A(Spacer(1,10))
     A(Paragraph(f"In accordance with section 357(2) of the Companies and Allied Matters Act, 2020, Messrs {E['auditor']} will continue in office as Auditors without a resolution being passed.",small_i))
     A(Spacer(1,4))
@@ -372,7 +374,10 @@ def build(data,out_path):
         A(Spacer(1,4)); A(Paragraph(f"FRC No: {M['frc_no']}",sigsub)); A(Paragraph(f"ICAN Stamp No: {M['ican_stamp_no']}",sigsub))
         if M.get("stamp_image"):
             A(Spacer(1,4)); A(scaled_image(M["stamp_image"], 42*mm, 42*mm))
-    A(Spacer(1,6)); A(Paragraph(E["city"],body)); A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
+    A(Spacer(1,6))
+    _aud_loc = M.get("firm_address") or M.get("firm_city")   # auditor's own address, never the client's
+    if _aud_loc: A(Paragraph(_aud_loc, body))
+    A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
     # 6 SOCI
     for x in heading("Statement of Profit or Loss and Other Comprehensive Income",f"For the year ended {M['period_end']}"): A(x)
     _cyl=M["fy"] or "CY"; _pyl=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "PY")

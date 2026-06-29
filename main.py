@@ -12,7 +12,7 @@ import afs_extract, afs_generator
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-06-28-branding-observe-v22"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-06-28-notes-tb-v25"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -102,6 +102,8 @@ async def generate(
     firm_primary_color: str = Form(""),
     firm_accent_color: str = Form(""),
     firm_footer_text: str = Form(""),
+    firm_address: str = Form(""),
+    firm_city: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -159,6 +161,8 @@ async def generate(
         if b_primary: m["primary_color"] = b_primary
         if b_accent:  m["accent_color"]  = b_accent
         if b_footer:  m["footer_text"]   = b_footer
+        if firm_address: m["firm_address"] = firm_address
+        if firm_city:    m["firm_city"]    = firm_city
         if firm_frc and not frc_no: m["frc_no"] = firm_frc
         if logo_path: m["logo_image"]    = logo_path
 
@@ -170,6 +174,8 @@ async def generate(
             "logo":          bool(logo_path),
             "footer_text":   b_footer or "",
             "frc_no":        (firm_frc or frc_no or ""),
+            "address":       firm_address or "",
+            "city":          firm_city or "",
         }
         _brand_flags = []
         if not b_auditor:
