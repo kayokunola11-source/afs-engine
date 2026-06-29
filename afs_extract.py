@@ -165,8 +165,9 @@ def _tax_schedules(wb):
            "per asset","(auto","see ","investigate","reconcil","from tb","cap at","capped at if")
     def _is_junk(lab):
         ll=lab.lower()
-        return (len(lab)>46 or any(j in ll for j in _JUNK)) and not ll.startswith(("total","adjusted",
-                "assessable","taxable","companies income","tertiary","development","police"))
+        return (len(lab)>90 or any(j in ll for j in _JUNK)) and not ll.startswith(("total","adjusted",
+                "assessable","taxable","companies income","tertiary","development","police",
+                "minimum tax","less:","add:","franked","balancing","profit/(loss)","deferred"))
     names={sn.lower():sn for sn in wb.sheetnames}
     cit=names.get("cit")
     if cit:
