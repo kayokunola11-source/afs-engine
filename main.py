@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-01-calccore-v27"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-07-01-calccore-sidebyside-v28"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside"]}
 
 @app.post("/generate")
 async def generate(
@@ -203,6 +203,22 @@ async def generate(
             pass
         pdf = open(out, "rb").read()
 
+        # --- side-by-side (additive): also render the pure-Python calc-core PDF for
+        #     comparison. Primary PDF above is unchanged. Wrapped so it can NEVER block. ---
+        _calc_core_pdf = None
+        try:
+            import afs_pycore
+            _cc_data = afs_pycore.build_data(recalced, meta_over={
+                "name": client_name or data["meta"].get("entity_name"),
+                "rc":   rc_number or data["meta"].get("rc")})
+            for _k in ("primary_color","accent_color","auditor","auditor_name","firm_address","firm_city"):
+                if data["meta"].get(_k): _cc_data["meta"][_k] = data["meta"][_k]
+            _cc_out = os.path.join(work, "afs_calccore.pdf")
+            afs_generator.build(_cc_data, _cc_out)
+            _calc_core_pdf = base64.b64encode(open(_cc_out, "rb").read()).decode("ascii")
+        except Exception as _cc_e:
+            if isinstance(_calc_core, dict): _calc_core["pdf_error"] = str(_cc_e)
+
         def gv(rows, lbl, k="cy"):
             for r in rows:
                 if r.get("label","").upper() == lbl.upper(): return r.get(k)
@@ -227,6 +243,7 @@ async def generate(
             "page_count": data["meta"].get("total_pages"),
             "version":    ENGINE_VERSION,
             "calc_core":  _calc_core,
+            "calc_core_pdf_base64": _calc_core_pdf,
         }
         return JSONResponse(body)
     finally:
