@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY afs_generator.py afs_extract.py afs_jukes.py afs_am.py afs_ifrs.py afs_notes.py main.py ./
+COPY afs_generator.py afs_extract.py afs_jukes.py afs_am.py afs_ifrs.py afs_notes.py calc_core.py main.py ./
 
 ENV PORT=8000
 EXPOSE 8000

@@ -8,7 +8,7 @@ GET  /health -> {"ok": true}
 import os, re, datetime, tempfile, subprocess, json, shutil, base64
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException
 from fastapi.responses import JSONResponse
-import afs_extract, afs_generator
+import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
@@ -113,6 +113,13 @@ async def generate(
         src = os.path.join(work, "in.xlsx")
         with open(src, "wb") as f: f.write(await workbook.read())
         recalced = recalc(src, work)
+        # --- additive Slice-1 self-check: pure-Python engine runs alongside the
+        #     live pipeline and reports its tie-out. Wrapped so it can NEVER affect
+        #     PDF generation. Remove once /generate computes from calc_core. ---
+        try:
+            _calc_core = calc_core.selfcheck(recalced)
+        except Exception as _cc_err:
+            _calc_core = {"engine": "calc_core-slice1", "error": str(_cc_err)}
 
         stamp_path = None
         if stamp is not None:
@@ -218,6 +225,7 @@ async def generate(
             "template_version": data["meta"].get("template_version"),
             "page_count": data["meta"].get("total_pages"),
             "version":    ENGINE_VERSION,
+            "calc_core":  _calc_core,
         }
         return JSONResponse(body)
     finally:
