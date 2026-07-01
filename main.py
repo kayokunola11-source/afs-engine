@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-01-calccore-sidebyside-v28"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-07-02-calccore-full-v29"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands"]}
 
 @app.post("/generate")
 async def generate(
@@ -105,6 +105,10 @@ async def generate(
     firm_footer_text: str = Form(""),
     firm_address: str = Form(""),
     firm_city: str = Form(""),
+    related_party_terms: str = Form(""),
+    kmp_compensation: str = Form(""),
+    events_after: str = Form(""),
+    presentation_scale: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -208,9 +212,17 @@ async def generate(
         _calc_core_pdf = None
         try:
             import afs_pycore
+            _disc={}
+            if related_party_terms: _disc["related_party_terms"]=related_party_terms
+            if kmp_compensation:
+                try: _disc["kmp_compensation"]=float(str(kmp_compensation).replace(",",""))
+                except Exception: pass
+            if events_after: _disc["events_after"]=events_after
+            _scale=int(presentation_scale) if str(presentation_scale).strip().isdigit() else None
             _cc_data = afs_pycore.build_data(recalced, meta_over={
                 "name": client_name or data["meta"].get("entity_name"),
-                "rc":   rc_number or data["meta"].get("rc")})
+                "rc":   rc_number or data["meta"].get("rc")},
+                disclosures=_disc, scale=_scale)
             for _k in ("primary_color","accent_color","auditor","auditor_name","firm_address","firm_city"):
                 if data["meta"].get(_k): _cc_data["meta"][_k] = data["meta"][_k]
             _cc_out = os.path.join(work, "afs_calccore.pdf")

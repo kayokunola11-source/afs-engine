@@ -29,6 +29,8 @@ LM = RM = 22*mm; TM = 26*mm; BM = 20*mm
 
 
 from reportlab.lib.utils import ImageReader
+UNIT="\u20a6"
+
 def scaled_image(path, max_w, max_h):
     """Return an Image scaled to fit within max_w x max_h, preserving aspect ratio."""
     try:
@@ -108,7 +110,7 @@ def stmt_table(rows,first_year=False,cy_year="2025",py_year="2024"):
     data.append(["","Note",str(cy_year),(str(py_year) if show_py else "")]); r0=0
     styles+=[("FONTNAME",(0,r0),(-1,r0),"DVB"),("FONTSIZE",(0,r0),(-1,r0),8.5),("TEXTCOLOR",(0,r0),(-1,r0),NAVY2),
              ("ALIGN",(1,r0),(-1,r0),"RIGHT"),("LINEBELOW",(0,r0),(-1,r0),0.7,NAVY2),("BOTTOMPADDING",(0,r0),(-1,r0),3)]
-    data.append(["","","₦","₦" if show_py else ""]); ru=1
+    data.append(["","",UNIT,UNIT if show_py else ""]); ru=1
     styles+=[("FONTNAME",(0,ru),(-1,ru),"DVB"),("FONTSIZE",(0,ru),(-1,ru),9),("ALIGN",(2,ru),(-1,ru),"RIGHT"),
              ("TOPPADDING",(0,ru),(-1,ru),0),("BOTTOMPADDING",(0,ru),(-1,ru),2)]
     for row in rows:
@@ -135,7 +137,7 @@ def stmt_table(rows,first_year=False,cy_year="2025",py_year="2024"):
 
 def note_table(pairs,first_year=False,cy_year="",py_year=""):
     show_py=not first_year
-    data=[["",str(cy_year),(str(py_year) if show_py else "")],["","₦","₦" if show_py else ""]]
+    data=[["",str(cy_year),(str(py_year) if show_py else "")],["",UNIT,UNIT if show_py else ""]]
     styles=[("FONTNAME",(0,0),(-1,1),"DVB"),("ALIGN",(1,0),(-1,1),"RIGHT"),("FONTSIZE",(0,0),(-1,0),8.5),
             ("TEXTCOLOR",(0,0),(-1,0),NAVY2),("FONTSIZE",(0,1),(-1,1),9),
             ("LINEBELOW",(0,1),(-1,1),0.5,LGREY),("BOTTOMPADDING",(0,0),(-1,0),1),("TOPPADDING",(0,1),(-1,1),0)]
@@ -153,7 +155,7 @@ def note_table(pairs,first_year=False,cy_year="",py_year=""):
 
 def cit_table(rows, cy_year="", py_year=""):
     """Tax-computation style schedule: label | CY | PY, with sections, subtotals and a final total."""
-    data=[["",str(cy_year),str(py_year)],["","\u20a6","\u20a6"]]
+    data=[["",str(cy_year),str(py_year)],["",UNIT,UNIT]]
     st=[("FONTNAME",(0,0),(-1,1),"DVB"),("ALIGN",(1,0),(-1,1),"RIGHT"),("FONTSIZE",(0,0),(-1,0),8.5),
         ("TEXTCOLOR",(0,0),(-1,0),NAVY2),("FONTSIZE",(0,1),(-1,1),9),("LINEBELOW",(0,1),(-1,1),0.5,LGREY),
         ("BOTTOMPADDING",(0,0),(-1,0),1),("TOPPADDING",(0,1),(-1,1),0)]
@@ -212,7 +214,7 @@ def soce_table(rows,first_year=False):
     data=[["","Share capital","Retained earnings","Total equity"]]
     styles=[("FONTNAME",(0,0),(-1,0),"DVB"),("ALIGN",(1,0),(-1,0),"RIGHT"),("TEXTCOLOR",(0,0),(-1,0),NAVY2),
             ("FONTSIZE",(0,0),(-1,0),8.6),("LINEBELOW",(0,0),(-1,0),0.7,NAVY2),("BOTTOMPADDING",(0,0),(-1,0),3)]
-    data.append(["","₦","₦","₦"])
+    data.append(["",UNIT,UNIT,UNIT])
     styles+=[("FONTNAME",(0,1),(-1,1),"DVB"),("ALIGN",(1,1),(-1,1),"RIGHT"),("BOTTOMPADDING",(0,1),(-1,1),2)]
     for r in rows:
         bold=r.get("kind")=="total"
@@ -283,6 +285,7 @@ def _apply_theme(meta):
         stl.textColor = NAVY
 
 def build(data,out_path):
+    global UNIT; UNIT=data.get("meta",{}).get("currency_unit","\u20a6")
     _apply_theme(data.get("meta", {}))
     doc=BaseDocTemplate(out_path,pagesize=A4,leftMargin=LM,rightMargin=RM,topMargin=TM,bottomMargin=BM+8*mm)
     frame=Frame(LM,BM+8*mm,PAGE_W-LM-RM,PAGE_H-TM-(BM+8*mm),id="main",leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)
@@ -352,20 +355,24 @@ def build(data,out_path):
     A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"])); A(PageBreak())
     # 5 auditor report
     for x in heading("Independent Auditor's Report",f"To the Members of {E['name'].upper()}"): A(x)
-    A(Paragraph("Report on the Financial Statements",h2))
-    A(Paragraph(f"We have audited the accompanying financial statements of {E['name'].upper()} (“the Company”), which comprise the Statement of Financial Position as at {M['period_end']}, the Statement of Profit or Loss and Other Comprehensive Income, the Statement of Cash Flows, the Statement of Changes in Equity for the year then ended, and the notes to the financial statements.",body))
-    A(Paragraph("Directors' Responsibility for the Financial Statements",h2))
-    A(Paragraph(f"The Directors are responsible for the preparation of financial statements that give a true and fair view in accordance with the {M['framework_short']} and the Statements of Accounting Standards applicable in Nigeria, in the manner required by the Companies and Allied Matters Act of Nigeria and the Financial Reporting Council of Nigeria Act, 2020, and for such internal control as the Directors determine is necessary to enable the preparation of financial statements that are free from material misstatement, whether due to fraud or error.",body))
-    A(Paragraph("Auditor's Responsibility",h2))
-    A(Paragraph("Our responsibility is to express an opinion on these financial statements based on our audit. We conducted our audit in accordance with International Standards on Auditing. Those standards require that we comply with ethical requirements and plan and perform the audit to obtain reasonable assurance about whether the financial statements are free from material misstatement.",body))
-    A(Paragraph("An audit involves performing procedures to obtain audit evidence about the amounts and disclosures in the financial statements. The procedures selected depend on the auditor's judgement, including the assessment of the risks of material misstatement of the financial statements, whether due to fraud or error.",body))
-    A(Paragraph("An audit also includes evaluating the appropriateness of accounting policies used and the reasonableness of accounting estimates made by the Directors, as well as evaluating the overall presentation of the financial statements. We believe that the audit evidence we have obtained is sufficient and appropriate to provide a basis for our audit opinion.",body))
-    A(Paragraph("Opinion",h2))
-    A(Paragraph(f"In our opinion, the accompanying financial statements give a true and fair view of the financial position of {E['name'].upper()} (“the Company”) as at {M['period_end']}, and of its financial performance and cash flows for the year then ended in accordance with the {M['framework_short']} and the Statements of Accounting Standards applicable in Nigeria, and in the manner required by the Companies and Allied Matters Act of Nigeria, 2020.",body))
+    A(Paragraph("Report on the Audit of the Financial Statements",h2))
+    A(Paragraph("Opinion",sub))
+    A(Paragraph(f"We have audited the financial statements of {E['name'].upper()} (\u201cthe Company\u201d), which comprise the Statement of Financial Position as at {M['period_end']}, and the Statement of Profit or Loss and Other Comprehensive Income, the Statement of Changes in Equity and the Statement of Cash Flows for the year then ended, and the notes to the financial statements, including a summary of significant accounting policies.",body))
+    A(Paragraph(f"In our opinion, the accompanying financial statements give a true and fair view of the financial position of the Company as at {M['period_end']}, and of its financial performance and its cash flows for the year then ended in accordance with the {M['framework_short']} and in the manner required by the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act.",body))
+    A(Paragraph("Basis for Opinion",sub))
+    A(Paragraph("We conducted our audit in accordance with International Standards on Auditing (ISAs). Our responsibilities under those standards are further described in the Auditor's Responsibilities for the Audit of the Financial Statements section of our report. We are independent of the Company in accordance with the International Ethics Standards Board for Accountants' International Code of Ethics for Professional Accountants (including International Independence Standards) and the ethical requirements that are relevant to our audit of the financial statements in Nigeria, and we have fulfilled our other ethical responsibilities in accordance with these requirements. We believe that the audit evidence we have obtained is sufficient and appropriate to provide a basis for our opinion.",body))
+    A(Paragraph("Other Information",sub))
+    A(Paragraph("The Directors are responsible for the other information. The other information comprises the Directors' Report and the Statement of Directors' Responsibilities, but does not include the financial statements and our auditor's report thereon. Our opinion on the financial statements does not cover the other information and we do not express any form of assurance conclusion thereon. In connection with our audit of the financial statements, our responsibility is to read the other information and, in doing so, consider whether the other information is materially inconsistent with the financial statements or our knowledge obtained in the audit, or otherwise appears to be materially misstated. If, based on the work we have performed, we conclude that there is a material misstatement of this other information, we are required to report that fact. We have nothing to report in this regard.",body))
+    A(Paragraph("Responsibilities of the Directors for the Financial Statements",sub))
+    A(Paragraph(f"The Directors are responsible for the preparation of financial statements that give a true and fair view in accordance with the {M['framework_short']} and the requirements of the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act, and for such internal control as the Directors determine is necessary to enable the preparation of financial statements that are free from material misstatement, whether due to fraud or error.",body))
+    A(Paragraph("In preparing the financial statements, the Directors are responsible for assessing the Company's ability to continue as a going concern, disclosing, as applicable, matters related to going concern, and using the going-concern basis of accounting unless the Directors either intend to liquidate the Company or to cease operations, or have no realistic alternative but to do so.",body))
     A(PageBreak())
+    A(Paragraph("Auditor's Responsibilities for the Audit of the Financial Statements",sub))
+    A(Paragraph("Our objectives are to obtain reasonable assurance about whether the financial statements as a whole are free from material misstatement, whether due to fraud or error, and to issue an auditor's report that includes our opinion. Reasonable assurance is a high level of assurance, but is not a guarantee that an audit conducted in accordance with ISAs will always detect a material misstatement when it exists. Misstatements can arise from fraud or error and are considered material if, individually or in the aggregate, they could reasonably be expected to influence the economic decisions of users taken on the basis of these financial statements.",body))
+    A(Paragraph("As part of an audit in accordance with ISAs, we exercise professional judgement and maintain professional scepticism throughout the audit. We also identify and assess the risks of material misstatement, whether due to fraud or error, design and perform audit procedures responsive to those risks, and obtain audit evidence that is sufficient and appropriate to provide a basis for our opinion; obtain an understanding of internal control relevant to the audit in order to design audit procedures that are appropriate in the circumstances; evaluate the appropriateness of accounting policies used and the reasonableness of accounting estimates and related disclosures made by the Directors; conclude on the appropriateness of the Directors' use of the going-concern basis of accounting; and evaluate the overall presentation, structure and content of the financial statements.",body))
+    A(Paragraph("We communicate with the Directors regarding, among other matters, the planned scope and timing of the audit and significant audit findings, including any significant deficiencies in internal control that we identify during our audit.",body))
     A(Paragraph("Report on Other Legal and Regulatory Requirements",h2))
-    A(Paragraph("Compliance with the Requirements of Schedule 6 of the Companies and Allied Matters Act of Nigeria",sub))
-    A(Paragraph("In our opinion, proper books of account have been kept by the Company, so far as appears from our examination of those books, and the Company's Statement of Financial Position and Statement of Profit or Loss are in agreement with the books of account.",body))
+    A(Paragraph("In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the Company, so far as appears from our examination of those books; and (c) the Company's Statement of Financial Position and Statement of Profit or Loss and Other Comprehensive Income are in agreement with the books of account.",body))
     A(Spacer(1,16))
     if M["mode"]=="final" and M.get("signature_image"):
         _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; A(_sig); A(Spacer(1,1))
