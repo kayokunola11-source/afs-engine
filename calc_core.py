@@ -109,13 +109,20 @@ def read_inputs(wb):
         if outv:
             postings.append((cnt or None, bank or None, outv))
 
-    # TB_Import (mapped Dr/Cr helper columns J/K keyed by firm code F)
+    # TB_Import (mapped Dr/Cr helper cols J/K keyed by firm code F; asset-manager
+    # workbooks instead carry a single "Mapped Net (Dr-Cr)" in col H — fall back to it)
     ws = wb["TB_Import"]
-    for r in range(8, 212):
+    for r in range(8, 1001):
         c = ncode(ws.cell(r, 6).value)
         if not c:
             continue
         dr, cr = num(ws.cell(r, 10).value), num(ws.cell(r, 11).value)
+        if not dr and not cr:
+            net = num(ws.cell(r, 8).value)
+            if net > 0:
+                dr = net
+            elif net < 0:
+                cr = -net
         if dr:
             postings.append((c, None, dr))
         if cr:

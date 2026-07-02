@@ -6,9 +6,9 @@ from collections import defaultdict
 
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
 CA={"CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}
-CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans"}
-NCL={"NCL-Loans","NCL-Other","NCL-DefTax"}
-PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax"}
+CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow"}
+NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow"}
+PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
 
 def _py(wb):
     ws=wb["OpenBal"]; d={}
@@ -144,6 +144,18 @@ def read_finsum(wb):
             rows.append([str(lbl).strip()]+[(_num2(v) if isinstance(v,(int,float)) else 0) for v in vals])
     return _grid(headers,rows,money_from=1,subhead=None,bold_last=False) if rows else None
 
+def read_capadq(wb):
+    if "Capital_Adequacy" not in wb.sheetnames: return None
+    ws=wb["Capital_Adequacy"]; rows=[]
+    for r in range(5,20):
+        a=ws.cell(r,1).value; b=ws.cell(r,2).value; c=ws.cell(r,3).value
+        if a and (isinstance(b,(int,float)) or isinstance(c,(int,float))):
+            lab=str(a).strip()
+            tot = lab.upper().startswith("TOTAL") or "ratio" in lab.lower() or "excess" in lab.lower() or "minimum required" in lab.lower()
+            row=[lab,_num2(b),_num2(c)]+ (["total"] if tot else [])
+            rows.append(row)
+    return rows or None
+
 def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=None):
     disclosures=disclosures or {}
     wb=openpyxl.load_workbook(path, data_only=True)
@@ -205,6 +217,42 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
            money(-taxexp,-taxexp_py,"Taxation","12",indent=True),
            money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
            money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
+    am = any(a.get("section")=="INC-MgmtFee" for a in tb.values())
+    if am:
+        full_ifrs=True
+        mgmt=S(cy,{"INC-MgmtFee"},-1); mgmt_py=S(py,{"INC-MgmtFee"},-1)
+        perf=S(cy,{"INC-PerfFee"},-1); perf_py=S(py,{"INC-PerfFee"},-1)
+        invinc=S(cy,{"INC-Other"},-1); invinc_py=S(py,{"INC-Other"},-1)
+        direct=S(cy,{"EXP-Direct"}); direct_py=S(py,{"EXP-Direct"})
+        opex=S(cy,{"EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr"}); opex_py=S(py,{"EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr"})
+        finc=S(cy,{"EXP-Finance"}); finc_py=S(py,{"EXP-Finance"})
+        tfi=mgmt+perf; tfi_py=mgmt_py+perf_py
+        netfee=tfi-direct; netfee_py=tfi_py-direct_py
+        opam=netfee+invinc-opex; opam_py=netfee_py+invinc_py-opex_py
+        pbtam=opam-finc; pbtam_py=opam_py-finc_py
+        # keep downstream (SCF, VAS, financial instruments) consistent
+        rev=tfi+invinc; rev_py=tfi_py+invinc_py; oi=0; oi_py=0
+        cos=direct; cos_py=direct_py; admin=opex; admin_py=opex_py; sell=0; sell_py=0
+        fin=finc; fin_py=finc_py; gross=rev-cos; gross_py=rev_py-cos_py; op=pbtam; op_py=pbtam_py
+        soci=[money(mgmt,mgmt_py,"Management fee income","6",indent=True)]
+        if abs(perf)>=1 or abs(perf_py)>=1: soci.append(money(perf,perf_py,"Performance fee income","6",indent=True))
+        soci.append(money(tfi,tfi_py,"TOTAL FEE INCOME",kind="subtotal"))
+        if abs(direct)>=1 or abs(direct_py)>=1:
+            soci.append(money(-direct,-direct_py,"Direct fund servicing costs","8",indent=True))
+            soci.append(money(netfee,netfee_py,"NET FEE INCOME",kind="subtotal"))
+        soci.append(money(invinc,invinc_py,"Investment and other income","7",indent=True))
+        soci.append(money(-opex,-opex_py,"Operating expenses","9",indent=True))
+        soci.append(money(opam,opam_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"))
+        if abs(finc)>=1 or abs(finc_py)>=1: soci.append(money(-finc,-finc_py,"Finance cost","11",indent=True))
+        # Asset-manager tax: max(CIT on taxable profit, minimum tax = rate x gross income)
+        _mtr=cov.get("min_tax",0.005) or 0.005; _cr=cov.get("cit_rate",0.30) or 0.30
+        _txbl=pbtam+S(cy,{"EXP-Depr"}); _txbl_py=pbtam_py+S(py,{"EXP-Depr"})
+        tax_am=max(max(0,_txbl)*_cr,(tfi+invinc)*_mtr); tax_am_py=max(max(0,_txbl_py)*_cr,(tfi_py+invinc_py)*_mtr)
+        pat=pbtam-tax_am; pat_py=pbtam_py-tax_am_py
+        soci+=[money(pbtam,pbtam_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
+               money(-tax_am,-tax_am_py,"Taxation","12",indent=True),
+               money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
+               money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
 
     def bs_line(secs,label,note="",sign=1):
         return money(S(cy,secs,sign),S(py,secs,sign),label,note,indent=True)
@@ -213,7 +261,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     inv=S(cy,{"CA-Inventory"}); inv_py=S(py,{"CA-Inventory"})
     rec=S(cy,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}); rec_py=S(py,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     cash=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); cash_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
-    sc=S(cy,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital"},-1); sc_py=S(py,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital"},-1)
+    sc=S(cy,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1); sc_py=S(py,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1)
     cl=S(cy,CL,-1); cl_py=S(py,CL,-1); ncl=S(cy,NCL,-1); ncl_py=S(py,NCL,-1)
     tel=sc+re_close+ncl+cl; tel_py=sc_py+re_close_py+ncl_py+cl_py
     sofp=[{"label":"ASSETS","kind":"section"},{"label":"Non-current assets","kind":"section"},
@@ -241,7 +289,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     def dS(secs): return S(cy,secs)-S(py,secs)          # movement in signed balance (Dr+)
     OP_CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory"}
     INV={"NCA-PPE-Cost","NCA-Intangible-Cost","NCA-Investments","NCA-PreInc"}
-    FIN={"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Drawings",
+    FIN={"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes","EQ-Drawings",
          "NCL-Loans","NCL-Other","CL-Loans","CL-Overdraft","CL-DCA"}
     CASH={"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}
     pbt=op
@@ -275,7 +323,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     if abs(inv_oth)>=1: scf.append(money(inv_oth,0,"Purchase of investments",indent=True))
     scf.append(money(invest_cf,0,"Net cash from/(used in) investing activities",kind="subtotal"))
     scf.append({"label":"Cash Flows From Financing Activities","kind":"section"})
-    dca_m=-dS({"CL-DCA"}); eq_m=-dS({"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Drawings"}); loan_m=-dS({"NCL-Loans","NCL-Other","CL-Loans","CL-Overdraft"})
+    dca_m=-dS({"CL-DCA"}); eq_m=-dS({"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes","EQ-Drawings"}); loan_m=-dS({"NCL-Loans","NCL-Other","CL-Loans","CL-Overdraft"})
     if abs(eq_m)>=1: scf.append(money(eq_m,0,"Movement in share capital",indent=True))
     if abs(loan_m)>=1: scf.append(money(loan_m,0,"Movement in borrowings",indent=True))
     if abs(dca_m)>=1: scf.append(money(dca_m,0,"Director\'s current account movement",indent=True))
@@ -392,7 +440,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     ref_ppe=n; ppe=_ppe(wb); notes.append(N(f"{n}. Property, Plant and Equipment",ppe=ppe or {"classes":[],"total":[0,0,0,0]})); n+=1
     ref_rec=add("Trade and Other Receivables",{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     ref_cash=add("Cash and Cash Equivalents",{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
-    ref_sc=add("Share Capital",{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital"},-1)
+    ref_sc=add("Share Capital",{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1)
     ref_re=n; notes.append(N(f"{n}. Retained Earnings",table=[
         ["Retained earnings — opening balance",re_open,re_acct_py],
         ["Profit/(loss) for the year",pat,pat_py],
@@ -414,6 +462,20 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     ev=disclosures.get("events_after")
     notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
     if full_ifrs:
+        if am:
+            _mf=figtab({"INC-MgmtFee"},-1)
+            if _mf and any(abs(r[1])>=1 or abs(r[2])>=1 for r in _mf):
+                notes.append(N(f"{n}. Management Fee Income",table=_mf)); n+=1
+            _ii=figtab({"INC-Other"},-1)
+            if _ii and any(abs(r[1])>=1 or abs(r[2])>=1 for r in _ii):
+                notes.append(N(f"{n}. Investment and Other Income",table=_ii)); n+=1
+            _oe=figtab({"EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr"})
+            if _oe and any(abs(r[1])>=1 or abs(r[2])>=1 for r in _oe):
+                notes.append(N(f"{n}. Operating Expenses",table=_oe)); n+=1
+            _ca=read_capadq(wb)
+            if _ca:
+                notes.append(N(f"{n}. Regulatory Capital Adequacy",
+                    ["The Company is a SEC-registered fund/portfolio manager and is required to maintain minimum regulatory capital. Its capital position at the reporting date was:"],table=_ca)); n+=1
         # --- Earnings per share (IAS 33) ---
         _shares=abs(S(cy,{"EQ-ShareCap"}))   # proxy: shares from share-capital (assume ₦1 units unless a share count is provided)
         _sh=(disclosures or {}).get("shares_in_issue") or (_shares if _shares>1 else 1)
@@ -517,7 +579,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                 if str(wb["Cover"].cell(_r,2).value or "").strip().lower().startswith("presentation scale"):
                     _lab=str(wb["Cover"].cell(_r,3).value or ""); break
             scale=1000 if "000" in _lab else 1
-    meta["currency_unit"]="₦'000" if scale==1000 else "₦"
+    if am: scale=1                      # asset-manager TB is already in ₦'000
+    meta["currency_unit"]="₦'000" if (scale==1000 or am) else "₦"
     if scale and scale!=1:
         for _rows in (soci,sofp,scf):
             for _r in _rows:
