@@ -210,8 +210,8 @@ def grid_table(g):
                            ("LEFTPADDING",(0,0),(-1,-1),0),("RIGHTPADDING",(0,0),(-1,-1),0)]+st))
     return t
 
-def soce_table(rows,first_year=False):
-    data=[["","Share capital","Retained earnings","Total equity"]]
+def soce_table(rows,first_year=False,headers=None):
+    data=[headers or ["","Share capital","Retained earnings","Total equity"]]
     styles=[("FONTNAME",(0,0),(-1,0),"DVB"),("ALIGN",(1,0),(-1,0),"RIGHT"),("TEXTCOLOR",(0,0),(-1,0),NAVY2),
             ("FONTSIZE",(0,0),(-1,0),8.6),("LINEBELOW",(0,0),(-1,0),0.7,NAVY2),("BOTTOMPADDING",(0,0),(-1,0),3)]
     data.append(["",UNIT,UNIT,UNIT])
@@ -293,86 +293,95 @@ def build(data,out_path):
                           PageTemplate(id="body",frames=[frame],onPage=header_footer)])
     doc.afs=data["meta"]; fy_first=data["meta"]["first_year"]; E=data["entity"]; M=data["meta"]
     el=[]; A=el.append
+    L=data.get("labels",{})
+    ENT=L.get("entity_word","Company"); GOVS=L.get("gov_plural","Directors"); GOV=L.get("gov_singular","Director")
+    T_SOCI=L.get("soci_title","Statement of Profit or Loss and Other Comprehensive Income")
+    T_SOCE=L.get("soce_title","Statement of Changes in Equity")
+    ADDR=L.get("addressee","Members"); PERF=L.get("perf_phrase","financial performance")
+    REPORT_TITLE=L.get("report_title","Directors' Report")
+    RESP_TITLE=L.get("resp_title","Statement of Directors' Responsibilities")
+    ADVISERS_TITLE=L.get("advisers_title","Directors, Professional Advisers and Registered Office")
+    SOCI_FOOT=L.get("soci_footnote","Profit for the year is wholly derived from continuing operations. There were no items of other comprehensive income during the year.")
     A(NextPageTemplate("body")); A(PageBreak())
     # 1 advisers
     A(Spacer(1,2))
-    for x in heading("Directors, Professional Advisers and Registered Office"): A(x)
+    for x in heading(ADVISERS_TITLE): A(x)
     def kv(label,value):
         A(Paragraph(label,h2))
         if isinstance(value,(list,tuple)):
             for v in value: A(Paragraph(v,body))
         else: A(Paragraph(value,body))
-    kv("RC Number",E["rc"]); kv("Directors",E["directors"]); kv("Principal Activity",E["activity"])
+    kv("RC Number",E["rc"]); kv(GOVS,E["directors"]); kv("Principal Activity",E["activity"])
     kv("Registered Office",E["office"]); kv("Bankers",E["bankers"]); kv("External Auditor",E["auditor"])
     _firm_addr = M.get("firm_address") or M.get("firm_city")
     if _firm_addr: A(Paragraph(_firm_addr, body))
     A(Spacer(1,10))
     A(Paragraph(f"In accordance with section 357(2) of the Companies and Allied Matters Act, 2020, Messrs {E['auditor']} will continue in office as Auditors without a resolution being passed.",small_i))
     A(Spacer(1,4))
-    A(Paragraph(f"Per the firm's house-style signature convention, {M['sig_words']} of the Company's Directors sign these financial statements on behalf of the Board.",small_i))
+    A(Paragraph(f"Per the firm's house-style signature convention, {M['sig_words']} of the {ENT}'s {GOVS} sign these financial statements on behalf of the {L.get('board_word','Board')}.",small_i))
     A(PageBreak())
     # 2 contents
     for x in heading("Contents"): A(x)
-    toc=[("Directors, Professional Advisers and Registered Office","2"),("Directors' Report","4"),
-         ("Statement of Directors' Responsibilities","6"),("Independent Auditor's Report","7"),
-         ("Statement of Profit or Loss and Other Comprehensive Income","9"),("Statement of Financial Position","10"),
-         ("Statement of Cash Flows","11"),("Statement of Changes in Equity","12"),("Notes to the Financial Statements","13")]
+    toc=[(ADVISERS_TITLE,"2"),(REPORT_TITLE,"4"),
+         (RESP_TITLE,"6"),("Independent Auditor's Report","7"),
+         (T_SOCI,"9"),("Statement of Financial Position","10"),
+         ("Statement of Cash Flows","11"),(T_SOCE,"12"),("Notes to the Financial Statements","13")]
     tt=Table([[Paragraph(t,body),Paragraph(p,bodyc)] for t,p in toc],colWidths=[PAGE_W-LM-RM-14*mm,14*mm])
     tt.setStyle(TableStyle([("ALIGN",(1,0),(1,-1),"RIGHT"),("TOPPADDING",(0,0),(-1,-1),4),("BOTTOMPADDING",(0,0),(-1,-1),4),("LEFTPADDING",(0,0),(-1,-1),0)]))
     A(tt); A(PageBreak())
     # 3 directors report
-    for x in heading("Directors' Report"): A(x)
-    A(Paragraph(f"The Directors present their report together with the audited financial statements of {E['name'].upper()} (“the Company”) for the year ended {M['period_end']}.",body))
+    for x in heading(REPORT_TITLE): A(x)
+    A(Paragraph(f"The {GOVS} present their report together with the audited financial statements of {E['name'].upper()} (“the {ENT}”) for the year ended {M['period_end']}.",body))
     A(Paragraph("Principal activities",h2)); A(Paragraph(E["activity_para"],body))
-    A(Paragraph("Directors",h2))
-    A(Paragraph("The names of the Directors of the Company are set out on page 2 of these financial statements. In accordance with section 303 of the Companies and Allied Matters Act, 2020, no Director has notified the Company of any declarable interest in contracts or transactions in which the Company was involved during the year under review.",body))
+    A(Paragraph(GOVS,h2))
+    A(Paragraph(f"The names of the {GOVS} of the {ENT} are set out on page 2 of these financial statements. In accordance with section 303 of the Companies and Allied Matters Act, 2020, no {GOV} has notified the {ENT} of any declarable interest in contracts or transactions in which the {ENT} was involved during the year under review.",body))
     A(Paragraph("Results for the year",h2)); A(Paragraph(M["results_para"],body))
     A(Paragraph("Property, plant and equipment",h2)); A(Paragraph(M["ppe_para"],body))
     A(Paragraph("Employment of disabled persons",h2))
-    A(Paragraph("The Company maintains an open employment policy for disabled persons as part of its corporate social responsibility, provided the candidate meets the requirements of the role.",body))
+    A(Paragraph(f"The {ENT} maintains an open employment policy for disabled persons as part of its corporate social responsibility, provided the candidate meets the requirements of the role.",body))
     A(Paragraph("Health, safety and welfare of employees",h2))
-    A(Paragraph("Arrangements are made for the adequate security and protection of staff at the Company's premises, and applicable health and safety regulations are observed at all times.",body))
+    A(Paragraph(f"Arrangements are made for the adequate security and protection of staff at the {ENT}'s premises, and applicable health and safety regulations are observed at all times.",body))
     A(Paragraph("Employee involvement and training",h2))
-    A(Paragraph("The Company provides facilities for regular on-the-job training of staff. Regular consultative meetings are held by management to keep employees abreast of developments within the Company, including its strategic plans and achievements.",body))
+    A(Paragraph(f"The {ENT} provides facilities for regular on-the-job training of staff. Regular consultative meetings are held by management to keep employees abreast of developments within the {ENT}, including its strategic plans and achievements.",body))
     A(PageBreak())
     A(Paragraph("Post-reporting-date events",h2))
-    A(Paragraph(f"There were no significant events after the reporting date which could have materially affected the financial position of the Company as at {M['period_end']} or the results presented in these financial statements that have not been adequately disclosed or provided for.",body))
+    A(Paragraph(f"There were no significant events after the reporting date which could have materially affected the financial position of the {ENT} as at {M['period_end']} or the results presented in these financial statements that have not been adequately disclosed or provided for.",body))
     A(Paragraph("Auditors",h2))
-    A(Paragraph(f"In accordance with the applicable provisions of the Companies and Allied Matters Act, 2020, Messrs {E['auditor']} have indicated their willingness to continue in office as Auditors of the Company.",body))
-    A(Spacer(1,14)); A(Paragraph("BY ORDER OF THE BOARD",sig)); A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"])); A(PageBreak())
+    A(Paragraph(f"In accordance with the applicable provisions of the Companies and Allied Matters Act, 2020, Messrs {E['auditor']} have indicated their willingness to continue in office as Auditors of the {ENT}.",body))
+    A(Spacer(1,14)); A(Paragraph("BY ORDER OF THE "+L.get('board_word','Board').upper(),sig)); A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(PageBreak())
     # 4 responsibilities
-    for x in heading("Statement of Directors' Responsibilities",f"In relation to the financial statements for the year ended {M['period_end']}."): A(x)
-    A(Paragraph("The Companies and Allied Matters Act, 2020 requires the Directors to prepare financial statements for each financial year that give a true and fair view of the financial position of the Company as at the end of the financial year and of its financial performance and cash flows for the year then ended.",body))
-    A(Paragraph("In preparing these financial statements, the Directors have ensured that:",body))
+    for x in heading(RESP_TITLE,f"In relation to the financial statements for the year ended {M['period_end']}."): A(x)
+    A(Paragraph(f"The Companies and Allied Matters Act, 2020 requires the {GOVS} to prepare financial statements for each financial year that give a true and fair view of the financial position of the {ENT} as at the end of the financial year and of its {PERF} and cash flows for the year then ended.",body))
+    A(Paragraph(f"In preparing these financial statements, the {GOVS} have ensured that:",body))
     for b in ["proper accounting records are maintained;","appropriate accounting policies are selected and consistently applied;",
               "judgements and estimates made are reasonable and prudent;",f"the applicable {M['framework_short']} has been followed; and",
-              "the financial statements are prepared on a going-concern basis unless it is inappropriate to presume that the Company will continue in business."]:
+              f"the financial statements are prepared on a going-concern basis unless it is inappropriate to presume that the {ENT} will continue in business."]:
         A(Paragraph(b,bullet,bulletText="•"))
     A(Spacer(1,4))
-    A(Paragraph("The Directors are responsible for maintaining adequate accounting records, safeguarding the assets of the Company, and taking reasonable steps for the prevention and detection of fraud and other irregularities. The fulfilment of this responsibility is discharged through the establishment and maintenance of sound management and accounting systems, the maintenance of an organisational structure that provides for the delegation of authority, and the constant review of operational performance against approved plans and budgets.",body))
-    A(Paragraph(f"The Directors further confirm that these financial statements have been prepared in accordance with the {M['framework']} and in compliance with the provisions of the Companies and Allied Matters Act, 2020.",body))
-    A(Paragraph("The Directors have assessed the ability of the Company to continue as a going concern and have no reason to believe that the Company will not remain a going concern in the foreseeable future.",body))
-    A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"])); A(PageBreak())
+    A(Paragraph(f"The {GOVS} are responsible for maintaining adequate accounting records, safeguarding the assets of the {ENT}, and taking reasonable steps for the prevention and detection of fraud and other irregularities. The fulfilment of this responsibility is discharged through the establishment and maintenance of sound management and accounting systems, the maintenance of an organisational structure that provides for the delegation of authority, and the constant review of operational performance against approved plans and budgets.",body))
+    A(Paragraph(f"The {GOVS} further confirm that these financial statements have been prepared in accordance with the {M['framework']} and in compliance with the provisions of the Companies and Allied Matters Act, 2020.",body))
+    A(Paragraph(f"The {GOVS} have assessed the ability of the {ENT} to continue as a going concern and have no reason to believe that the {ENT} will not remain a going concern in the foreseeable future.",body))
+    A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(PageBreak())
     # 5 auditor report
-    for x in heading("Independent Auditor's Report",f"To the Members of {E['name'].upper()}"): A(x)
+    for x in heading("Independent Auditor's Report",f"To the {ADDR} of {E['name'].upper()}"): A(x)
     A(Paragraph("Report on the Audit of the Financial Statements",h2))
     A(Paragraph("Opinion",sub))
-    A(Paragraph(f"We have audited the financial statements of {E['name'].upper()} (\u201cthe Company\u201d), which comprise the Statement of Financial Position as at {M['period_end']}, and the Statement of Profit or Loss and Other Comprehensive Income, the Statement of Changes in Equity and the Statement of Cash Flows for the year then ended, and the notes to the financial statements, including a summary of significant accounting policies.",body))
-    A(Paragraph(f"In our opinion, the accompanying financial statements give a true and fair view of the financial position of the Company as at {M['period_end']}, and of its financial performance and its cash flows for the year then ended in accordance with the {M['framework_short']} and in the manner required by the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act.",body))
+    A(Paragraph(f"We have audited the financial statements of {E['name'].upper()} (\u201cthe {ENT}\u201d), which comprise the Statement of Financial Position as at {M['period_end']}, and the {T_SOCI}, the {T_SOCE} and the Statement of Cash Flows for the year then ended, and the notes to the financial statements, including a summary of significant accounting policies.",body))
+    A(Paragraph(f"In our opinion, the accompanying financial statements give a true and fair view of the financial position of the {ENT} as at {M['period_end']}, and of its {PERF} and its cash flows for the year then ended in accordance with the {M['framework_short']} and in the manner required by the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act.",body))
     A(Paragraph("Basis for Opinion",sub))
-    A(Paragraph("We conducted our audit in accordance with International Standards on Auditing (ISAs). Our responsibilities under those standards are further described in the Auditor's Responsibilities for the Audit of the Financial Statements section of our report. We are independent of the Company in accordance with the International Ethics Standards Board for Accountants' International Code of Ethics for Professional Accountants (including International Independence Standards) and the ethical requirements that are relevant to our audit of the financial statements in Nigeria, and we have fulfilled our other ethical responsibilities in accordance with these requirements. We believe that the audit evidence we have obtained is sufficient and appropriate to provide a basis for our opinion.",body))
+    A(Paragraph(f"We conducted our audit in accordance with International Standards on Auditing (ISAs). Our responsibilities under those standards are further described in the Auditor's Responsibilities for the Audit of the Financial Statements section of our report. We are independent of the {ENT} in accordance with the International Ethics Standards Board for Accountants' International Code of Ethics for Professional Accountants (including International Independence Standards) and the ethical requirements that are relevant to our audit of the financial statements in Nigeria, and we have fulfilled our other ethical responsibilities in accordance with these requirements. We believe that the audit evidence we have obtained is sufficient and appropriate to provide a basis for our opinion.",body))
     A(Paragraph("Other Information",sub))
-    A(Paragraph("The Directors are responsible for the other information. The other information comprises the Directors' Report and the Statement of Directors' Responsibilities, but does not include the financial statements and our auditor's report thereon. Our opinion on the financial statements does not cover the other information and we do not express any form of assurance conclusion thereon. In connection with our audit of the financial statements, our responsibility is to read the other information and, in doing so, consider whether the other information is materially inconsistent with the financial statements or our knowledge obtained in the audit, or otherwise appears to be materially misstated. If, based on the work we have performed, we conclude that there is a material misstatement of this other information, we are required to report that fact. We have nothing to report in this regard.",body))
-    A(Paragraph("Responsibilities of the Directors for the Financial Statements",sub))
-    A(Paragraph(f"The Directors are responsible for the preparation of financial statements that give a true and fair view in accordance with the {M['framework_short']} and the requirements of the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act, and for such internal control as the Directors determine is necessary to enable the preparation of financial statements that are free from material misstatement, whether due to fraud or error.",body))
-    A(Paragraph("In preparing the financial statements, the Directors are responsible for assessing the Company's ability to continue as a going concern, disclosing, as applicable, matters related to going concern, and using the going-concern basis of accounting unless the Directors either intend to liquidate the Company or to cease operations, or have no realistic alternative but to do so.",body))
+    A(Paragraph(f"The {GOVS} are responsible for the other information. The other information comprises the {REPORT_TITLE} and the {RESP_TITLE}, but does not include the financial statements and our auditor's report thereon. Our opinion on the financial statements does not cover the other information and we do not express any form of assurance conclusion thereon. In connection with our audit of the financial statements, our responsibility is to read the other information and, in doing so, consider whether the other information is materially inconsistent with the financial statements or our knowledge obtained in the audit, or otherwise appears to be materially misstated. If, based on the work we have performed, we conclude that there is a material misstatement of this other information, we are required to report that fact. We have nothing to report in this regard.",body))
+    A(Paragraph(f"Responsibilities of the {GOVS} for the Financial Statements",sub))
+    A(Paragraph(f"The {GOVS} are responsible for the preparation of financial statements that give a true and fair view in accordance with the {M['framework_short']} and the requirements of the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act, and for such internal control as the {GOVS} determine is necessary to enable the preparation of financial statements that are free from material misstatement, whether due to fraud or error.",body))
+    A(Paragraph(f"In preparing the financial statements, the {GOVS} are responsible for assessing the {ENT}'s ability to continue as a going concern, disclosing, as applicable, matters related to going concern, and using the going-concern basis of accounting unless the {GOVS} either intend to liquidate the {ENT} or to cease operations, or have no realistic alternative but to do so.",body))
     A(PageBreak())
     A(Paragraph("Auditor's Responsibilities for the Audit of the Financial Statements",sub))
     A(Paragraph("Our objectives are to obtain reasonable assurance about whether the financial statements as a whole are free from material misstatement, whether due to fraud or error, and to issue an auditor's report that includes our opinion. Reasonable assurance is a high level of assurance, but is not a guarantee that an audit conducted in accordance with ISAs will always detect a material misstatement when it exists. Misstatements can arise from fraud or error and are considered material if, individually or in the aggregate, they could reasonably be expected to influence the economic decisions of users taken on the basis of these financial statements.",body))
-    A(Paragraph("As part of an audit in accordance with ISAs, we exercise professional judgement and maintain professional scepticism throughout the audit. We also identify and assess the risks of material misstatement, whether due to fraud or error, design and perform audit procedures responsive to those risks, and obtain audit evidence that is sufficient and appropriate to provide a basis for our opinion; obtain an understanding of internal control relevant to the audit in order to design audit procedures that are appropriate in the circumstances; evaluate the appropriateness of accounting policies used and the reasonableness of accounting estimates and related disclosures made by the Directors; conclude on the appropriateness of the Directors' use of the going-concern basis of accounting; and evaluate the overall presentation, structure and content of the financial statements.",body))
-    A(Paragraph("We communicate with the Directors regarding, among other matters, the planned scope and timing of the audit and significant audit findings, including any significant deficiencies in internal control that we identify during our audit.",body))
+    A(Paragraph(f"As part of an audit in accordance with ISAs, we exercise professional judgement and maintain professional scepticism throughout the audit. We also identify and assess the risks of material misstatement, whether due to fraud or error, design and perform audit procedures responsive to those risks, and obtain audit evidence that is sufficient and appropriate to provide a basis for our opinion; obtain an understanding of internal control relevant to the audit in order to design audit procedures that are appropriate in the circumstances; evaluate the appropriateness of accounting policies used and the reasonableness of accounting estimates and related disclosures made by the {GOVS}; conclude on the appropriateness of the {GOVS}' use of the going-concern basis of accounting; and evaluate the overall presentation, structure and content of the financial statements.",body))
+    A(Paragraph(f"We communicate with the {GOVS} regarding, among other matters, the planned scope and timing of the audit and significant audit findings, including any significant deficiencies in internal control that we identify during our audit.",body))
     A(Paragraph("Report on Other Legal and Regulatory Requirements",h2))
-    A(Paragraph("In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the Company, so far as appears from our examination of those books; and (c) the Company's Statement of Financial Position and Statement of Profit or Loss and Other Comprehensive Income are in agreement with the books of account.",body))
+    A(Paragraph(f"In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the {ENT}, so far as appears from our examination of those books; and (c) the {ENT}'s Statement of Financial Position and {T_SOCI} are in agreement with the books of account.",body))
     A(Spacer(1,16))
     if M["mode"]=="final" and M.get("signature_image"):
         _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; A(_sig); A(Spacer(1,1))
@@ -386,24 +395,24 @@ def build(data,out_path):
     if _aud_loc: A(Paragraph(_aud_loc, body))
     A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
     # 6 SOCI
-    for x in heading("Statement of Profit or Loss and Other Comprehensive Income",f"For the year ended {M['period_end']}"): A(x)
+    for x in heading(T_SOCI,f"For the year ended {M['period_end']}"): A(x)
     _cyl=M["fy"] or "CY"; _pyl=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "PY")
     A(stmt_table(data["soci"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
-    A(Paragraph("Profit for the year is wholly derived from continuing operations. There were no items of other comprehensive income during the year.",small_i))
+    A(Paragraph(SOCI_FOOT,small_i))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 7 SOFP
     for x in heading("Statement of Financial Position",f"As at {M['period_end']}"): A(x)
     A(stmt_table(data["sofp"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
-    A(Paragraph(f"These financial statements were approved by the Board of Directors on {M['sign_date']} and signed on its behalf by:",body))
-    A(Spacer(1,16)); A(signatures(M["signatories"],M["sign_date"])); A(Spacer(1,6))
+    A(Paragraph(f"These financial statements were approved by the {L.get('board_word','Board of Directors')} on {M['sign_date']} and signed on its behalf by:",body))
+    A(Spacer(1,16)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(Spacer(1,6))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 8 SCF
     for x in heading("Statement of Cash Flows",f"For the year ended {M['period_end']} (indirect method)"): A(x)
     A(stmt_table(data["scf"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 9 SOCE
-    for x in heading("Statement of Changes in Equity",f"For the year ended {M['period_end']}"): A(x)
-    A(soce_table(data["soce"],fy_first)); A(Spacer(1,8))
+    for x in heading(T_SOCE,f"For the year ended {M['period_end']}"): A(x)
+    A(soce_table(data["soce"],fy_first,data.get("soce_headers"))); A(Spacer(1,8))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 10 notes
     for x in heading("Notes to the Financial Statements",f"For the year ended {M['period_end']}"): A(x)

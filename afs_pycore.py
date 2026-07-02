@@ -160,6 +160,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     disclosures=disclosures or {}
     wb=openpyxl.load_workbook(path, data_only=True)
     inp=calc_core.read_inputs(wb); tb,errs=calc_core.build_trial_balance(inp); cov=inp["cover"]
+    if any(str(a.get("section","")).startswith("NGO-") for a in tb.values()):
+        return _build_ngo(wb, tb, cov, meta_over, disclosures, scale)
     _plnt={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost"}
     _pbt=-sum(a["cy_signed"] for a in tb.values() if a["section"] in _plnt)
     _cap=num(wb["CapAllow"]["H13"].value) if "CapAllow" in wb.sheetnames else 0.0
@@ -636,4 +638,275 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                 _g["rows"]=[[(c/scale if (i>=_mf and isinstance(c,(int,float))) else c) for i,c in enumerate(row)] for row in _g["rows"]]
     return {"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,
             "fin_summary":None,"tax_schedules":None,"flags":res["errors"],
+            "tie_outs":[{"name":x,"pass":bool(p)} for x,p in tie]}
+
+
+# ========================= NGO (Not-for-Profit) framework =========================
+def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
+    """Self-contained not-for-profit build: Statement of Financial Activities,
+    fund-based Statement of Financial Position, Statement of Movements in Funds, NGO notes."""
+    disclosures=disclosures or {}
+    sec={c:a["section"] for c,a in tb.items()}; nm={c:a["name"] for c,a in tb.items()}
+    cy={c:a["cy_signed"] for c,a in tb.items()}; py=_py(wb)
+    def S(book,secs,sign=1): return sign*sum(book.get(c,0.0) for c,s in sec.items() if s in secs)
+    def accts(book,secs,sign=1):
+        out=[]
+        for c,s in sec.items():
+            if s in secs:
+                v=sign*book.get(c,0.0)
+                if abs(v)>=1: out.append([str(nm.get(c) or c), v])
+        return out
+    def figtab(secs,sign=1):
+        rows=accts(cy,secs,sign); pyrows={x[0]:x[1] for x in accts(py,secs,sign)}
+        o=[[r[0],r[1],pyrows.get(r[0],0.0)] for r in rows]
+        for k,v in pyrows.items():
+            if not any(r[0]==k for r in o): o.append([k,0.0,v])
+        return o+[["Total",sum(r[1] for r in o),sum(r[2] for r in o),"total"]]
+    def M_(cyv,pyv,label,note="",kind="normal",indent=False):
+        r={"label":label,"note":note,"cy":cyv,"py":pyv,"kind":kind}
+        if indent: r["indent"]=True
+        return r
+    FUND_U={"NGO-Fund-Unrestricted"}; FUND_R={"NGO-Fund-Restricted"}; FUND_E={"NGO-Fund-Endowment"}
+
+    grants=S(cy,{"NGO-Inc-Grants"},-1); grants_py=S(py,{"NGO-Inc-Grants"},-1)
+    dons=S(cy,{"NGO-Inc-Donations"},-1); dons_py=S(py,{"NGO-Inc-Donations"},-1)
+    finc=S(cy,{"NGO-Inc-Fundraising"},-1); finc_py=S(py,{"NGO-Inc-Fundraising"},-1)
+    invinc=S(cy,{"NGO-Inc-Investment"},-1); invinc_py=S(py,{"NGO-Inc-Investment"},-1)
+    othinc=S(cy,{"NGO-Inc-Other"},-1); othinc_py=S(py,{"NGO-Inc-Other"},-1)
+    tot_inc=grants+dons+finc+invinc+othinc; tot_inc_py=grants_py+dons_py+finc_py+invinc_py+othinc_py
+    prog=S(cy,{"NGO-Exp-Programme"}); prog_py=S(py,{"NGO-Exp-Programme"})
+    supp=S(cy,{"NGO-Exp-Support"}); supp_py=S(py,{"NGO-Exp-Support"})
+    fcost=S(cy,{"NGO-Exp-Fundraising"}); fcost_py=S(py,{"NGO-Exp-Fundraising"})
+    govc=S(cy,{"NGO-Exp-Governance"}); govc_py=S(py,{"NGO-Exp-Governance"})
+    tot_exp=prog+supp+fcost+govc; tot_exp_py=prog_py+supp_py+fcost_py+govc_py
+    surplus=tot_inc-tot_exp; surplus_py=tot_inc_py-tot_exp_py
+
+    # ---- Statement of Financial Activities ----
+    soci=[{"label":"INCOME","kind":"section"}, M_(grants,grants_py,"Grants and donor income","G1",indent=True)]
+    if abs(dons)>=1 or abs(dons_py)>=1: soci.append(M_(dons,dons_py,"Donations and gifts","G2",indent=True))
+    if abs(finc)>=1 or abs(finc_py)>=1: soci.append(M_(finc,finc_py,"Fundraising income","G3",indent=True))
+    if abs(invinc)>=1 or abs(invinc_py)>=1: soci.append(M_(invinc,invinc_py,"Investment income","G4",indent=True))
+    if abs(othinc)>=1 or abs(othinc_py)>=1: soci.append(M_(othinc,othinc_py,"Other income","G5",indent=True))
+    soci.append(M_(tot_inc,tot_inc_py,"TOTAL INCOME",kind="subtotal"))
+    soci.append({"label":"EXPENDITURE","kind":"section"})
+    soci.append(M_(-prog,-prog_py,"Programme / project costs","G6",indent=True))
+    if abs(supp)>=1 or abs(supp_py)>=1: soci.append(M_(-supp,-supp_py,"Support and administrative costs","G7",indent=True))
+    if abs(fcost)>=1 or abs(fcost_py)>=1: soci.append(M_(-fcost,-fcost_py,"Fundraising costs","G8",indent=True))
+    if abs(govc)>=1 or abs(govc_py)>=1: soci.append(M_(-govc,-govc_py,"Governance costs","G9",indent=True))
+    soci.append(M_(-tot_exp,-tot_exp_py,"TOTAL EXPENDITURE",kind="subtotal"))
+    soci.append(M_(surplus,surplus_py,"NET INCOME/(EXPENDITURE) FOR THE YEAR",kind="total"))
+    soci.append(M_(surplus,surplus_py,"NET MOVEMENT IN FUNDS",kind="grandtotal"))
+
+    # ---- balances ----
+    ppe_cy=S(cy,{"NCA-PPE-Cost","NCA-PPE-Dep"}); ppe_py=S(py,{"NCA-PPE-Cost","NCA-PPE-Dep"})
+    nca=S(cy,NCA); nca_py=S(py,NCA); ca=S(cy,CA); ca_py=S(py,CA); ta=nca+ca; ta_py=nca_py+ca_py
+    inv=S(cy,{"CA-Inventory"}); inv_py=S(py,{"CA-Inventory"})
+    rec=S(cy,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}); rec_py=S(py,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
+    cash=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); cash_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
+    cl=S(cy,CL,-1); cl_py=S(py,CL,-1); ncl=S(cy,NCL,-1); ncl_py=S(py,NCL,-1)
+    fu=S(cy,FUND_U,-1)+surplus; fu_py=S(py,FUND_U,-1)+surplus_py
+    fr=S(cy,FUND_R,-1); fr_py=S(py,FUND_R,-1)
+    fe=S(cy,FUND_E,-1); fe_py=S(py,FUND_E,-1)
+    tot_funds=fu+fr+fe; tot_funds_py=fu_py+fr_py+fe_py
+    tfl=tot_funds+cl+ncl; tfl_py=tot_funds_py+cl_py+ncl_py
+
+    sofp=[{"label":"ASSETS","kind":"section"},{"label":"Non-current assets","kind":"section"},
+          M_(ppe_cy,ppe_py,"Property, plant & equipment","N-PPE",indent=True),
+          M_(nca,nca_py,"Total non-current assets",kind="subtotal"),
+          {"label":"Current assets","kind":"section"}]
+    if abs(inv)>=1 or abs(inv_py)>=1: sofp.append(M_(inv,inv_py,"Inventory","",indent=True))
+    if abs(rec)>=1 or abs(rec_py)>=1: sofp.append(M_(rec,rec_py,"Receivables and prepayments","N-REC",indent=True))
+    sofp+=[M_(cash,cash_py,"Cash & cash equivalents","N-CASH",indent=True),
+           M_(ca,ca_py,"Total current assets",kind="subtotal"),
+           M_(ta,ta_py,"TOTAL ASSETS",kind="grandtotal"),
+           {"label":"FUNDS AND LIABILITIES","kind":"section"},{"label":"Accumulated funds","kind":"section"},
+           M_(fu,fu_py,"Unrestricted (general) fund","N-FUND",indent=True)]
+    if abs(fr)>=1 or abs(fr_py)>=1: sofp.append(M_(fr,fr_py,"Restricted funds","N-FUND",indent=True))
+    if abs(fe)>=1 or abs(fe_py)>=1: sofp.append(M_(fe,fe_py,"Endowment fund","N-FUND",indent=True))
+    sofp.append(M_(tot_funds,tot_funds_py,"Total funds",kind="subtotal"))
+    if abs(cl)>=1 or abs(cl_py)>=1:
+        sofp.append({"label":"Current liabilities","kind":"section"})
+        if abs(S(cy,{"CL-Trade-Pay"},-1))>=1 or abs(S(py,{"CL-Trade-Pay"},-1))>=1:
+            sofp.append(M_(S(cy,{"CL-Trade-Pay"},-1),S(py,{"CL-Trade-Pay"},-1),"Payables","N-PAY",indent=True))
+        if abs(S(cy,{"CL-Accruals"},-1))>=1 or abs(S(py,{"CL-Accruals"},-1))>=1:
+            sofp.append(M_(S(cy,{"CL-Accruals"},-1),S(py,{"CL-Accruals"},-1),"Accruals","N-PAY",indent=True))
+        if abs(S(cy,{"CL-Statutory"},-1))>=1 or abs(S(py,{"CL-Statutory"},-1))>=1:
+            sofp.append(M_(S(cy,{"CL-Statutory"},-1),S(py,{"CL-Statutory"},-1),"Statutory deductions","",indent=True))
+        if abs(S(cy,{"CL-DefIncome"},-1))>=1 or abs(S(py,{"CL-DefIncome"},-1))>=1:
+            sofp.append(M_(S(cy,{"CL-DefIncome"},-1),S(py,{"CL-DefIncome"},-1),"Deferred / unspent grant income","",indent=True))
+        sofp.append(M_(cl,cl_py,"Total current liabilities",kind="subtotal"))
+    if abs(ncl)>=1 or abs(ncl_py)>=1:
+        sofp.append({"label":"Non-current liabilities","kind":"section"})
+        sofp.append(M_(ncl,ncl_py,"Non-current liabilities",indent=True))
+    sofp.append(M_(tfl,tfl_py,"TOTAL FUNDS AND LIABILITIES",kind="grandtotal"))
+
+    # ---- SCF (indirect; residual forced into operating to keep the identity) ----
+    def dS(secs): return S(cy,secs)-S(py,secs)
+    dep_charge=-dS({"NCA-PPE-Dep"}); amort=-dS({"NCA-Intangible-Amort"})
+    d_inv=-dS({"CA-Inventory"}); d_rec=-dS({"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
+    d_pay=-dS({"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-DefIncome"})
+    op_cf=surplus+dep_charge+amort+d_inv+d_rec+d_pay
+    inv_ppe=-dS({"NCA-PPE-Cost"}); inv_int=-dS({"NCA-Intangible-Cost"}); inv_oth=-dS({"NCA-Investments","NCA-PreInc"})
+    invest_cf=inv_ppe+inv_int+inv_oth
+    fin_cf=-dS({"NGO-Fund-Unrestricted","NGO-Fund-Restricted","NGO-Fund-Endowment","NCL-Loans","NCL-Other","CL-Loans","CL-Overdraft","CL-DCA"})
+    target=cash-cash_py; other=target-(op_cf+invest_cf+fin_cf)
+    if abs(other)>=1: op_cf+=other
+    net=op_cf+invest_cf+fin_cf
+    scf=[{"label":"Cash Flows From Operating Activities","kind":"section"},
+         M_(surplus,0,"Net income/(expenditure) for the year",indent=True),
+         {"label":"Adjustments for non-cash items:","kind":"section"},
+         M_(dep_charge+amort,0,"Depreciation & amortisation",indent=True),
+         {"label":"Working capital changes:","kind":"section"},
+         M_(d_inv,0,"(Increase)/decrease in inventory",indent=True),
+         M_(d_rec,0,"(Increase)/decrease in receivables",indent=True),
+         M_(d_pay,0,"Increase/(decrease) in payables & unspent grants",indent=True)]
+    if abs(other)>=1: scf.append(M_(other,0,"Other movements",indent=True))
+    scf.append(M_(op_cf,0,"Net cash from/(used in) operating activities",kind="subtotal"))
+    scf.append({"label":"Cash Flows From Investing Activities","kind":"section"})
+    if abs(inv_ppe)>=1: scf.append(M_(inv_ppe,0,"Purchase of property, plant & equipment",indent=True))
+    if abs(inv_int)>=1: scf.append(M_(inv_int,0,"Purchase of intangible assets",indent=True))
+    if abs(inv_oth)>=1: scf.append(M_(inv_oth,0,"Movement in investments",indent=True))
+    scf.append(M_(invest_cf,0,"Net cash from/(used in) investing activities",kind="subtotal"))
+    scf.append({"label":"Cash Flows From Financing Activities","kind":"section"})
+    if abs(fin_cf)>=1: scf.append(M_(fin_cf,0,"Movement in funds and borrowings",indent=True))
+    scf.append(M_(fin_cf,0,"Net cash from/(used in) financing activities",kind="subtotal"))
+    scf.append(M_(net,0,"Net increase/(decrease) in cash",kind="total"))
+    scf.append(M_(cash_py,0,"Cash & cash equivalents at start of period",indent=True))
+    scf.append(M_(cash,0,"Cash & cash equivalents at end of period",kind="grandtotal"))
+
+    # ---- Statement of Movements in Funds ----
+    bf_u=S(py,FUND_U,-1); bf_re=S(py,FUND_R,-1)+S(py,FUND_E,-1)
+    soce=[{"label":"Balance brought forward","sc":bf_u,"re":bf_re,"tot":bf_u+bf_re,"kind":"total"},
+          {"label":"Net income/(expenditure) for the year","sc":surplus,"re":0,"tot":surplus,"kind":"normal"},
+          {"label":"Balance carried forward","sc":fu,"re":fr+fe,"tot":tot_funds,"kind":"total"}]
+    soce_headers=["","Unrestricted","Restricted & endowment","Total funds"]
+
+    # ---- notes ----
+    ent_name=(meta_over or {}).get("name") or (cov.get("entity") or "The Organisation")
+    fw="the financial reporting framework for not-for-profit organisations in Nigeria, based on the IFRS for SMEs as adapted for not-for-profit entities"
+    fws="IFRS for SMEs (as adapted for not-for-profit entities)"
+    def N(t,paras=None,table=None,ppe=None):
+        d={"title":t}
+        if paras: d["paras"]=paras
+        if table is not None: d["table"]=table
+        if ppe is not None: d["ppe"]=ppe
+        return d
+    notes=[]; ref={}
+    notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Organisation”) is a not-for-profit organisation registered in Nigeria as an Incorporated Trustees under Part F of the Companies and Allied Matters Act, 2020 with Registration Number {(meta_over or {}).get('rc','') or '[RC/IT number to be confirmed]'}. The Organisation is domiciled in Nigeria and its activities are directed at its charitable objects and are not carried on for profit."]))
+    notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with {fw}, and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (₦), the functional and presentation currency of the Organisation. As a not-for-profit entity, the Organisation presents a Statement of Financial Activities in place of a statement of profit or loss, and accounts for its resources on a fund-accounting basis."]))
+    notes.append(N("3. Fund Accounting",["Unrestricted (general) funds are funds that are available for use at the discretion of the Trustees in furtherance of the general objects of the Organisation.",
+        "Restricted funds are funds subject to specific conditions imposed by donors or by the terms of an appeal. Expenditure meeting those conditions is charged to the relevant restricted fund.",
+        "Endowment funds are funds held on terms requiring the capital to be retained; only the income or a specified portion may be applied.",
+        "Where a fund is in deficit, the Trustees fund the shortfall from unrestricted reserves."]))
+    notes.append(N("4. Significant Accounting Policies",[
+        "Income recognition — Grants and donations are recognised when the Organisation is entitled to the resources, receipt is probable and the amount can be measured reliably. Grants received for future periods or for unfulfilled conditions are deferred and carried as unspent grant income within liabilities or restricted funds.",
+        "Expenditure — Expenditure is recognised on an accruals basis and classified by activity as programme/project costs, support and administrative costs, fundraising costs and governance costs.",
+        "Property, plant and equipment — stated at cost less accumulated depreciation; depreciation is charged on a straight-line basis over the estimated useful lives of the assets.",
+        "Taxation — The Organisation is a not-for-profit entity; income applied solely to its charitable objects is exempt from companies income tax under the applicable provisions of the Companies Income Tax Act."]))
+    n=5
+    def add(title,secs,key,sign=1):
+        nonlocal n
+        t=figtab(secs,sign)
+        if any(abs(r[1])>=1 or abs(r[2])>=1 for r in t[:-1]):
+            notes.append(N(f"{n}. {title}",table=t)); ref[key]=n; n+=1
+    add("Grants and Donor Income",{"NGO-Inc-Grants"},"G1",-1)
+    add("Donations and Gifts",{"NGO-Inc-Donations"},"G2",-1)
+    add("Fundraising Income",{"NGO-Inc-Fundraising"},"G3",-1)
+    add("Investment Income",{"NGO-Inc-Investment"},"G4",-1)
+    add("Other Income",{"NGO-Inc-Other"},"G5",-1)
+    add("Programme / Project Costs",{"NGO-Exp-Programme"},"G6")
+    add("Support and Administrative Costs",{"NGO-Exp-Support"},"G7")
+    add("Fundraising Costs",{"NGO-Exp-Fundraising"},"G8")
+    add("Governance Costs",{"NGO-Exp-Governance"},"G9")
+    ppe=_ppe(wb); ref["N-PPE"]=n
+    notes.append(N(f"{n}. Property, Plant and Equipment",ppe=ppe or {"classes":[],"total":[0,0,0,0]})); n+=1
+    if abs(rec)>=1 or abs(rec_py)>=1:
+        ref["N-REC"]=n; notes.append(N(f"{n}. Receivables and Prepayments",table=figtab({"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}))); n+=1
+    ref["N-CASH"]=n; notes.append(N(f"{n}. Cash and Cash Equivalents",table=figtab({"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}))); n+=1
+    if abs(cl)>=1 or abs(cl_py)>=1:
+        ref["N-PAY"]=n; notes.append(N(f"{n}. Payables and Accruals",table=figtab({"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-DefIncome"},-1))); n+=1
+    # Funds movement note
+    ref["N-FUND"]=n
+    fund_tab=[["Unrestricted (general) fund",S(py,FUND_U,-1),surplus,fu],
+              ["Restricted funds",S(py,FUND_R,-1),0,fr],
+              ["Endowment fund",S(py,FUND_E,-1),0,fe],
+              ["Total funds",bf_u+bf_re,surplus,tot_funds,"total"]]
+    fund_tab=[r for r in fund_tab if r[0]=="Total funds" or abs(r[1])>=1 or abs(r[3])>=1]
+    notes.append(N(f"{n}. Analysis of Movements in Funds",
+        ["The net income/(expenditure) for the year has been allocated to the unrestricted (general) fund. Movements on restricted and endowment funds are recognised directly against those funds."],
+        table=[["Fund","Balance b/f","Movement","Balance c/f"]]+fund_tab)); n+=1
+    notes.append(N(f"{n}. Taxation",["The Organisation is registered as a not-for-profit entity. Income applied solely to the furtherance of its charitable objects is exempt from companies income tax; accordingly, no tax charge arises in these financial statements. Any income derived from activities not connected with its objects would be subject to tax at the applicable rate."])); n+=1
+    tr=disclosures.get("kmp_compensation")
+    notes.append(N(f"{n}. Trustees and Related Parties",
+        ["The Trustees give their time and services to the Organisation without remuneration, except for the reimbursement of out-of-pocket expenses incurred in furtherance of the Organisation’s objects." if not tr else
+         f"Key management personnel and Trustees received emoluments and reimbursements totalling ₦{float(tr):,.0f} during the year.",
+         disclosures.get("related_party_terms") or "There were no other material related-party transactions during the year requiring disclosure."])); n+=1
+    ev=disclosures.get("events_after")
+    notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
+    notes.append(N(f"{n}. Going Concern",["The Trustees have a reasonable expectation that the Organisation has adequate resources and donor support to continue in operational existence for the foreseeable future; accordingly, the going-concern basis has been adopted in preparing these financial statements."])); n+=1
+
+    # remap note references on the face statements
+    refmap={k:str(v) for k,v in ref.items()}
+    for rows_ in (soci,sofp):
+        for r in rows_:
+            if isinstance(r,dict) and r.get("note") in refmap: r["note"]=refmap[r["note"]]
+            elif isinstance(r,dict) and r.get("note","").startswith(("G","N-")): r["note"]=""
+
+    labels={"entity_word":"Organisation","gov_plural":"Trustees","gov_singular":"Trustee","board_word":"Board of Trustees",
+            "soci_title":"Statement of Financial Activities","soce_title":"Statement of Movements in Funds",
+            "addressee":"Trustees","perf_phrase":"financial activities",
+            "report_title":"Report of the Trustees","resp_title":"Statement of Trustees’ Responsibilities",
+            "advisers_title":"Trustees, Professional Advisers and Registered Office",
+            "soci_footnote":"The net movement in funds for the year arose wholly from continuing operations. There were no recognised gains or losses other than the net income/(expenditure) stated above.",
+            "sofp_note":"These financial statements were approved by the Board of Trustees and signed on its behalf by:"}
+    _sw=(surplus)
+    meta={"mode":"draft","template":"NGO","entity_name":ent_name,"short_name":ent_name.split()[0],
+          "name_line2":" ".join(ent_name.split()[1:]) or "",
+          "rc":(meta_over or {}).get("rc","[RC/IT]"),"auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
+          "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
+          "first_year":False,"signatories":["Trustee","Trustee"],"sig_words":"two",
+          "results_para":f"The Organisation recorded total income of ₦{tot_inc:,.0f} and total expenditure of ₦{tot_exp:,.0f}, resulting in a net {'deficit' if _sw<0 else 'surplus'} for the year of ₦{abs(_sw):,.0f}, which has been transferred to the accumulated funds.",
+          "ppe_para":f"The depreciation charge for the year amounted to ₦{dep_charge:,.0f}.",
+          "frc_no":"","ican_stamp_no":"","stamp_image":None,"signature_image":None,"total_pages":20,
+          "labels":labels}
+    entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
+            "activity":"Not-for-profit / charitable activities","activity_short":"Charitable activities",
+            "activity_para":"The principal activity of the Organisation is the pursuit of its charitable and not-for-profit objects as set out in its constitution.",
+            "directors":cov.get("directors") or ["Trustee"],"office":["Nigeria"],"bankers":["Banker details to be confirmed"],
+            "auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co","city":"Nigeria"}
+
+    tie=[("SOFP balances",abs(ta-tfl)<1),
+         ("Surplus = income - expenditure",abs(surplus-(tot_inc-tot_exp))<1),
+         ("Funds c/f = funds b/f + surplus",abs(tot_funds-((bf_u+bf_re)+surplus))<1),
+         ("Cash flow = SOFP cash",abs(net-(cash-cash_py))<1),
+         ("SOFP balances (prior year)",abs(ta_py-tfl_py)<1)]
+    errs=[]
+    if abs(ta-tfl)>=1: errs.append("NGO SOFP does not balance by %.2f"%(ta-tfl))
+
+    # ---- presentation scale ----
+    if scale is None:
+        _lab=""
+        for _r in range(5,60):
+            if str(wb["Cover"].cell(_r,2).value or "").strip().lower().startswith("presentation scale"):
+                _lab=str(wb["Cover"].cell(_r,3).value or ""); break
+        scale=1000 if "000" in _lab else 1
+    meta["currency_unit"]="₦'000" if scale==1000 else "₦"
+    if scale and scale!=1:
+        for _rows in (soci,sofp,scf):
+            for _r in _rows:
+                for _k in ("cy","py"):
+                    if isinstance(_r.get(_k),(int,float)): _r[_k]=_r[_k]/scale
+        for _r in soce:
+            for _k in ("sc","re","tot"):
+                if isinstance(_r.get(_k),(int,float)): _r[_k]=_r[_k]/scale
+        for _nd in notes:
+            if _nd.get("table"):
+                _nd["table"]=[[(c/scale if (i>0 and isinstance(c,(int,float))) else c) for i,c in enumerate(row)] for row in _nd["table"]]
+            if _nd.get("ppe"):
+                _nd["ppe"]["classes"]=[[row[0]]+[(v/scale if isinstance(v,(int,float)) else v) for v in row[1:]] for row in _nd["ppe"]["classes"]]
+                _nd["ppe"]["total"]=[(v/scale if isinstance(v,(int,float)) else v) for v in _nd["ppe"]["total"]]
+
+    return {"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,
+            "soce_headers":soce_headers,"labels":labels,
+            "fin_summary":None,"tax_schedules":None,"flags":errs,
             "tie_outs":[{"name":x,"pass":bool(p)} for x,p in tie]}

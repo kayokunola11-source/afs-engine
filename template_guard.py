@@ -5,7 +5,7 @@ variant/version, and compares to what the engagement expected. Rejects a clear
 mismatch or a non-template file BEFORE anything is generated."""
 import openpyxl
 
-FW_NAME={"sme":"IFRS for SMEs","full_ifrs":"Full IFRS"}
+FW_NAME={"sme":"IFRS for SMEs","full_ifrs":"Full IFRS","ngo":"Not-for-Profit (NGO)"}
 CORE_SHEETS={"Cover","COA","TB","SOCI","SOFP"}
 
 def _cover(wb, label_contains):
@@ -19,6 +19,7 @@ def _cover(wb, label_contains):
 def _fw_from_mode(mode):
     if not mode: return None
     m=str(mode).lower()
+    if "not-for-profit" in m or "not for profit" in m or "ngo" in m or "incorporated trustee" in m: return "ngo"
     if "full ifrs" in m: return "full_ifrs"
     if "sme" in m or "small and medium" in m: return "sme"
     if "business name" in m or "sole prop" in m: return "sme"   # PIT mode is an SME-family template
