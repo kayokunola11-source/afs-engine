@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-02-calccore-full-v29"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-07-02-calccore-guard-v30"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard"]}
 
 @app.post("/generate")
 async def generate(
@@ -109,6 +109,9 @@ async def generate(
     kmp_compensation: str = Form(""),
     events_after: str = Form(""),
     presentation_scale: str = Form(""),
+    template_framework: str = Form(""),
+    template_variant: str = Form(""),
+    template_version: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -117,6 +120,20 @@ async def generate(
     try:
         src = os.path.join(work, "in.xlsx")
         with open(src, "wb") as f: f.write(await workbook.read())
+        # --- template/framework guard: reject a mismatched or non-template upload early.
+        #     Only active when the engagement came through the template picker (framework set);
+        #     legacy / JUKES uploads are unaffected. ---
+        _tguard = {"reject": False, "warnings": []}
+        if template_framework:
+            try:
+                import template_guard
+                _tguard = template_guard.check(src, expected_framework=template_framework,
+                                               expected_variant=(template_variant or None),
+                                               expected_version=(template_version or None))
+            except Exception as _tg_err:
+                _tguard = {"reject": False, "warnings": ["guard error: %s" % _tg_err]}
+            if _tguard.get("reject"):
+                raise HTTPException(422, _tguard["reason"])
         recalced = recalc(src, work)
         # --- additive Slice-1 self-check: pure-Python engine runs alongside the
         #     live pipeline and reports its tie-out. Wrapped so it can NEVER affect
@@ -256,6 +273,7 @@ async def generate(
             "version":    ENGINE_VERSION,
             "calc_core":  _calc_core,
             "calc_core_pdf_base64": _calc_core_pdf,
+            "template_check": _tguard,
         }
         return JSONResponse(body)
     finally:
