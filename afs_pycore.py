@@ -5,7 +5,7 @@ from calc_core import ncode, num
 from collections import defaultdict
 
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
-CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}
+CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
 CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow"}
 NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow"}
 PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
@@ -287,6 +287,43 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         soci+=[money(op,op_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"),money(op,op_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
                money(-taxexp,-taxexp_py,"Taxation","12",indent=True),money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
                money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
+    # ===== Lending (regulated finance company) — Full IFRS variant =====
+    lend = any(str(a.get("section","")).startswith("LEND-") for a in tb.values())
+    loans_net=loans_net_py=0.0
+    if lend:
+        full_ifrs=True
+        iinc=S(cy,{"LEND-IntInc"},-1); iinc_py=S(py,{"LEND-IntInc"},-1)
+        iexp=S(cy,{"LEND-IntExp"}); iexp_py=S(py,{"LEND-IntExp"})
+        impair=S(cy,{"LEND-Impair"}); impair_py=S(py,{"LEND-Impair"})
+        feeinc=S(cy,{"LEND-FeeInc"},-1); feeinc_py=S(py,{"LEND-FeeInc"},-1)
+        lothinc=S(cy,{"LEND-OthInc"},-1); lothinc_py=S(py,{"LEND-OthInc"},-1)
+        lopex=S(cy,{"PL-Admin","PL-Selling"}); lopex_py=S(py,{"PL-Admin","PL-Selling"})
+        nii=iinc-iexp; nii_py=iinc_py-iexp_py
+        niai=nii-impair; niai_py=nii_py-impair_py
+        lpbt=niai+feeinc+lothinc-lopex; lpbt_py=niai_py+feeinc_py+lothinc_py-lopex_py
+        ltax=S(cy,{"PL-Tax"}); ltax_py=S(py,{"PL-Tax"})
+        _cr=cov.get("cit_rate",0.30) or 0.30; _mtr=cov.get("min_tax",0.005) or 0.005
+        if abs(ltax)<1: ltax=max(max(0,lpbt)*_cr,(iinc+feeinc+lothinc)*_mtr)
+        if abs(ltax_py)<1: ltax_py=max(max(0,lpbt_py)*_cr,(iinc_py+feeinc_py+lothinc_py)*_mtr)
+        lpat=lpbt-ltax; lpat_py=lpbt_py-ltax_py
+        rev=iinc+feeinc+lothinc; rev_py=iinc_py+feeinc_py+lothinc_py
+        cos=iexp+impair; cos_py=iexp_py+impair_py; admin=lopex; admin_py=lopex_py; sell=0; sell_py=0
+        oi=0; oi_py=0; fin=0; fin_py=0; gross=rev-cos; gross_py=rev_py-cos_py; op=lpbt; op_py=lpbt_py
+        taxexp=ltax; taxexp_py=ltax_py; pat=lpat; pat_py=lpat_py
+        re_close=re_acct+pat; re_close_py=re_acct_py+pat_py; re_open=re_close_py
+        loans_net=S(cy,{"LEND-Loans","LEND-ECL"}); loans_net_py=S(py,{"LEND-Loans","LEND-ECL"})
+        soci=[money(iinc,iinc_py,"Interest income","L1",indent=True),
+              money(-iexp,-iexp_py,"Interest expense","L2",indent=True),
+              money(nii,nii_py,"NET INTEREST INCOME",kind="subtotal"),
+              money(-impair,-impair_py,"Impairment charge on financial assets","L3",indent=True),
+              money(niai,niai_py,"Net interest income after impairment",kind="subtotal"),
+              money(feeinc,feeinc_py,"Fee and commission income","L4",indent=True)]
+        if abs(lothinc)>=1 or abs(lothinc_py)>=1: soci.append(money(lothinc,lothinc_py,"Other operating income","L5",indent=True))
+        soci+=[money(-lopex,-lopex_py,"Operating expenses","L6",indent=True),
+               money(lpbt,lpbt_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
+               money(-ltax,-ltax_py,"Taxation","12",indent=True),
+               money(lpat,lpat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
+               money(lpat,lpat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
     def bs_line(secs,label,note="",sign=1):
         return money(S(cy,secs,sign),S(py,secs,sign),label,note,indent=True)
     ppe_cy=S(cy,{"NCA-PPE-Cost","NCA-PPE-Dep"}); ppe_py=S(py,{"NCA-PPE-Cost","NCA-PPE-Dep"})
@@ -317,6 +354,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
           money(S(cy,{"CL-DCA"},-1),S(py,{"CL-DCA"},-1),"Director's current account","20",indent=True),
           money(cl,cl_py,"Total current liabilities",kind="subtotal"),
           money(tel,tel_py,"TOTAL EQUITY AND LIABILITIES",kind="grandtotal")]
+    if lend:
+        _ci=next((i for i,r in enumerate(sofp) if isinstance(r,dict) and r.get("label")=="Cash & cash equivalents"),None)
+        if _ci is not None:
+            sofp.insert(_ci, money(loans_net,loans_net_py,"Loans and advances to customers","LB",indent=True))
 
     # ---------- SCF (indirect, derived from BS movements -> ties by identity) ----------
     def dS(secs): return S(cy,secs)-S(py,secs)          # movement in signed balance (Dr+)
@@ -329,13 +370,14 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     dep_charge=-dS({"NCA-PPE-Dep"}); amort_charge=-dS({"NCA-Intangible-Amort"})
     d_inv=-dS({"CA-Inventory"}); d_rec=-dS({"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     d_pay=-dS(OP_CL)
+    d_loans=-dS({"LEND-Loans","LEND-ECL"})   # lender: net loan-book movement (incl. ECL) is operating
     tax_mag=(-S(cy,{"CL-Tax"}))-(-S(py,{"CL-Tax"}))     # increase in tax payable
     tax_paid=taxexp-tax_mag
-    op_cf=pbt+dep_charge+amort_charge+d_inv+d_rec+d_pay-tax_paid
+    op_cf=pbt+dep_charge+amort_charge+d_inv+d_rec+d_pay+d_loans-tax_paid
     inv_ppe=-dS({"NCA-PPE-Cost"}); inv_int=-dS({"NCA-Intangible-Cost"}); inv_oth=-dS({"NCA-Investments","NCA-PreInc"})
     invest_cf=inv_ppe+inv_int+inv_oth
     fin_cf=-dS(FIN)
-    covered=OP_CL|{"CL-Tax","NCA-PPE-Dep","NCA-Intangible-Amort","EQ-RetEarn","CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}|INV|FIN|CASH
+    covered=OP_CL|{"CL-Tax","NCA-PPE-Dep","NCA-Intangible-Amort","EQ-RetEarn","CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}|INV|FIN|CASH|{"LEND-Loans","LEND-ECL"}
     other_cf=sum(-(cy.get(c,0)-py.get(c,0)) for c,ss in sec.items() if ss not in covered and ss[:2] in ("NC","CA","CL","EQ"))
     target=S(cy,CASH)-S(py,CASH)
     net=op_cf+invest_cf+fin_cf+other_cf
@@ -346,8 +388,9 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
          {"label":"Working capital changes:","kind":"section"},
          money(d_inv,0,"(Increase)/decrease in inventory",indent=True),
          money(d_rec,0,"(Increase)/decrease in receivables",indent=True),
-         money(d_pay,0,"Increase/(decrease) in payables & accruals",indent=True),
-         money(-tax_paid,0,"Tax paid",indent=True)]
+         money(d_pay,0,"Increase/(decrease) in payables & accruals",indent=True)]
+    if abs(d_loans)>=1: scf.append(money(d_loans,0,"(Increase)/decrease in loans and advances to customers",indent=True))
+    scf.append(money(-tax_paid,0,"Tax paid",indent=True))
     if abs(other_cf)>=1: scf.append(money(other_cf,0,"Other non-cash adjustments",indent=True))
     scf.append(money(op_cf+other_cf,0,"Net cash from/(used in) operating activities",kind="subtotal"))
     scf.append({"label":"Cash Flows From Investing Activities","kind":"section"})
@@ -495,6 +538,37 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     ev=disclosures.get("events_after")
     notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
     if full_ifrs:
+        if lend:
+            def _read_loanbook(wb):
+                if "LoanBook" not in wb.sheetnames: return None
+                ws=wb["LoanBook"]; rr=[]
+                for r in range(2,60):
+                    lab=ws.cell(r,1).value
+                    if lab and "stage" in str(lab).lower():
+                        rr.append([str(lab).strip(),num(ws.cell(r,2).value),num(ws.cell(r,3).value),num(ws.cell(r,4).value),num(ws.cell(r,5).value)])
+                return rr or None
+            _li=figtab({"LEND-IntInc"},-1)
+            if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _li[:-1]): notes.append(N(f"{n}. Interest Income",table=_li)); n+=1
+            _le=figtab({"LEND-IntExp"})
+            if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _le[:-1]): notes.append(N(f"{n}. Interest Expense",table=_le)); n+=1
+            _lf=figtab({"LEND-FeeInc"},-1)
+            if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _lf[:-1]): notes.append(N(f"{n}. Fee and Commission Income",table=_lf)); n+=1
+            _lb=_read_loanbook(wb)
+            if _lb:
+                _rows=[]; tg=te=tgp=tep=0.0
+                for st,gcy,ecy,gpy,epy in _lb:
+                    _rows.append([st,gcy,-ecy,gcy-ecy,gpy-epy]); tg+=gcy; te+=ecy; tgp+=gpy; tep+=epy
+                _rows.append(["Total",tg,-te,tg-te,tgp-tep,"total"])
+                notes.append({"title":f"{n}. Loans and Advances to Customers — by IFRS 9 Stage",
+                    "paras":["Loans and advances are carried at amortised cost less expected credit losses (ECL). Stage 1 exposures carry a 12-month ECL; Stage 2 and Stage 3 exposures carry lifetime ECL, with Stage 3 comprising credit-impaired loans."],
+                    "grids":[{"headers":["Stage","Gross amount","ECL allowance","Net (current year)","Net (prior year)"],"money_from":1,"rows":_rows}]}); n+=1
+                op_ecl=sum(x[4] for x in _lb); cl_ecl=sum(x[2] for x in _lb)
+                charge=S(cy,{"LEND-Impair"}); wo=op_ecl+charge-cl_ecl
+                _rec=[["Opening ECL allowance",op_ecl],["Charge to profit or loss for the year",charge]]
+                if abs(wo)>=1: _rec.append(["Amounts written off / other movements",-wo])
+                _rec.append(["Closing ECL allowance",cl_ecl,"total"])
+                notes.append({"title":f"{n}. Movement in the Expected Credit Loss Allowance",
+                    "grids":[{"headers":["Movement in ECL allowance","Amount"],"money_from":1,"rows":_rec}]}); n+=1
         if am:
             _mf=figtab({"INC-MgmtFee"},-1)
             if _mf and any(abs(r[1])>=1 or abs(r[2])>=1 for r in _mf):
