@@ -52,7 +52,7 @@ def read_inputs(wb):
     """Read the input sheets into plain Python structures. Returns a dict."""
     coa = {}
     ws = wb["COA"]
-    for r in range(5, 113):
+    for r in range(5, 200):   # widened so variant charts (e.g. manufacturing) beyond row 112 are read
         c = ncode(ws.cell(r, 1).value)
         if not c:
             continue

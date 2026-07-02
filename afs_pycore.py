@@ -5,10 +5,10 @@ from calc_core import ncode, num
 from collections import defaultdict
 
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
-CA={"CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}
+CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}
 CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow"}
 NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow"}
-PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
+PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
 
 def _py(wb):
     ws=wb["OpenBal"]; d={}
@@ -254,6 +254,37 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
                money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
 
+    mfg = any(a.get("section") in ("CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead") for a in tb.values())
+    _mfg_sched=None
+    if mfg:
+        def _op(secs): return sum(py.get(c,0.0) for c,aa in tb.items() if aa["section"] in secs)
+        rm_o=_op({"CA-Inv-RawMat"}); rm_c=S(cy,{"CA-Inv-RawMat"})
+        wip_o=_op({"CA-Inv-WIP"}); wip_c=S(cy,{"CA-Inv-WIP"})
+        fg_o=_op({"CA-Inv-FG"}); fg_c=S(cy,{"CA-Inv-FG"})
+        purch=S(cy,{"PL-Prod-Materials"}); labour=S(cy,{"PL-Prod-Labour"}); ovh=S(cy,{"PL-Prod-Overhead"})
+        other_cos=S(cy,{"PL-COS"})
+        rm_cons=rm_o+purch-rm_c; cost_prod=rm_cons+labour+ovh
+        cogm=cost_prod+wip_o-wip_c; cogs=cogm+fg_o-fg_c; cos=cogs+other_cos
+        cos_py=S(py,{"PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","PL-COS"})
+        gross=rev-cos; gross_py=rev_py-cos_py
+        op=gross+oi-admin-sell-fin; op_py=gross_py+oi_py-admin_py-sell_py-fin_py
+        pat=rev+oi-cos-admin-sell-fin-taxexp; pat_py=rev_py+oi_py-cos_py-admin_py-sell_py-fin_py-taxexp_py
+        _mfg_sched=[["Opening raw materials",rm_o],["Add: raw materials purchased",purch],["Less: closing raw materials",-rm_c],
+                    ["Raw materials consumed",rm_cons,"t"],["Direct labour",labour],["Factory overheads",ovh],
+                    ["Cost of production",cost_prod,"t"],["Add: opening work-in-progress",wip_o],["Less: closing work-in-progress",-wip_c],
+                    ["Cost of goods manufactured",cogm,"t"],["Add: opening finished goods",fg_o],["Less: closing finished goods",-fg_c],
+                    ["Cost of goods sold",cogs,"t"]]
+        _inv_split=[["Raw materials",rm_c,rm_o],["Work-in-progress",wip_c,wip_o],["Finished goods",fg_c,fg_o],
+                    ["Total inventories",rm_c+wip_c+fg_c,rm_o+wip_o+fg_o,"t"]]
+        soci=[money(rev,rev_py,"Revenue","6",indent=True),money(-cos,-cos_py,"Cost of sales","8",indent=True),
+              money(gross,gross_py,"GROSS PROFIT",kind="total")]
+        if abs(oi)>=1 or abs(oi_py)>=1: soci.append(money(oi,oi_py,"Other income","7",indent=True))
+        soci+=[money(-admin,-admin_py,"Administrative expenses","9",indent=True),
+               money(-sell,-sell_py,"Selling & distribution expenses","10",indent=True)]
+        if abs(fin)>=1 or abs(fin_py)>=1: soci.append(money(-fin,-fin_py,"Finance cost","11",indent=True))
+        soci+=[money(op,op_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"),money(op,op_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
+               money(-taxexp,-taxexp_py,"Taxation","12",indent=True),money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
+               money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
     def bs_line(secs,label,note="",sign=1):
         return money(S(cy,secs,sign),S(py,secs,sign),label,note,indent=True)
     ppe_cy=S(cy,{"NCA-PPE-Cost","NCA-PPE-Dep"}); ppe_py=S(py,{"NCA-PPE-Cost","NCA-PPE-Dep"})
@@ -542,6 +573,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         notes.append(N(f"{n}. Statement of Value Added",
             ["Value added is the wealth the Company has created by its own and its employees\' efforts. This statement shows that wealth and how it was distributed."],
             table=vas)); n+=1
+    if mfg and _mfg_sched:
+        _mt=[[r[0],r[1],None]+ (["total"] if (len(r)>2 and r[2]=="t") else []) for r in _mfg_sched]
+        notes.append(N(f"{n}. Manufacturing Account",["The cost of goods sold is built up from the cost of production as follows:"],table=_mt)); n+=1
+        _it=[[r[0],r[1],r[2]]+ (["total"] if len(r)>3 else []) for r in _inv_split]
+        notes.append(N(f"{n}. Inventories",table=_it)); n+=1
     notes.append(N(f"{n}. Going Concern",["The Directors have a reasonable expectation that the Company has adequate resources to continue in operational existence for the foreseeable future; accordingly, the going-concern basis has been adopted in preparing these financial statements."])); n+=1
     refmap={"6":str(ref_rev),"8":str(ref_cos),"9":str(ref_admin),"10":str(ref_sell),"12":str(ref_tax),
             "13":str(ref_ppe),"14":str(ref_rec),"15":str(ref_cash),"16":str(ref_sc),"17":str(ref_re),
