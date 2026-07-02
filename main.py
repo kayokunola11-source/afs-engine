@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-02-calccore-guard-v30"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
+ENGINE_VERSION = "2026-07-02-fullifrs-v31"  # Full IFRS notes module (deferred tax, IFRS 9/15/7, 5-yr summary)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile"]}
 
 @app.post("/generate")
 async def generate(
@@ -109,6 +109,7 @@ async def generate(
     kmp_compensation: str = Form(""),
     events_after: str = Form(""),
     presentation_scale: str = Form(""),
+    shares_in_issue: str = Form(""),
     template_framework: str = Form(""),
     template_variant: str = Form(""),
     template_version: str = Form(""),
@@ -235,11 +236,15 @@ async def generate(
                 try: _disc["kmp_compensation"]=float(str(kmp_compensation).replace(",",""))
                 except Exception: pass
             if events_after: _disc["events_after"]=events_after
+            if shares_in_issue:
+                try: _disc["shares_in_issue"]=float(str(shares_in_issue).replace(",",""))
+                except Exception: pass
             _scale=int(presentation_scale) if str(presentation_scale).strip().isdigit() else None
+            _fifrs=(template_framework.strip().lower()=="full_ifrs") if template_framework else None
             _cc_data = afs_pycore.build_data(recalced, meta_over={
                 "name": client_name or data["meta"].get("entity_name"),
                 "rc":   rc_number or data["meta"].get("rc")},
-                disclosures=_disc, scale=_scale)
+                disclosures=_disc, scale=_scale, full_ifrs=_fifrs)
             for _k in ("primary_color","accent_color","auditor","auditor_name","firm_address","firm_city"):
                 if data["meta"].get(_k): _cc_data["meta"][_k] = data["meta"][_k]
             _cc_out = os.path.join(work, "afs_calccore.pdf")

@@ -62,7 +62,89 @@ def _scf_py_rows(wb):
 def _scf_py_val(rows, kws):
     return sum(v for lab,v in rows for k in kws if k in lab) if rows else 0.0
 
-def build_data(path, meta_over=None, disclosures=None, scale=None):
+
+def _num2(v): return float(v) if isinstance(v,(int,float)) else 0.0
+def _grid(headers, rows, money_from=1, subhead=None, bold_last=True):
+    return {"headers":headers,"rows":rows,"money_from":money_from,"subhead":subhead,"bold_last":bold_last}
+
+def read_deftax(wb, rate):
+    if "DefTax" not in wb.sheetnames: return None
+    ws=wb["DefTax"]; comps=[]
+    for r in range(6,13):
+        a=ws.cell(r,1).value; b=ws.cell(r,2).value; c=ws.cell(r,3).value
+        if a and (isinstance(b,(int,float)) or isinstance(c,(int,float))):
+            comps.append([str(a).strip(), _num2(b)*rate, _num2(c)*rate])
+    if not comps: return None
+    close=sum(x[1] for x in comps); close_py=sum(x[2] for x in comps)
+    opn=_num2(ws.cell(14,2).value); opn_py=_num2(ws.cell(14,3).value)
+    tbl=[[x[0],x[1],x[2]] for x in comps]
+    tbl.append(["Net deferred tax asset/(liability)",close,close_py,"total"])
+    recon=[["Opening balance",opn,opn_py],["Charge/(credit) to profit or loss",close-opn,close_py-opn_py],
+           ["Closing balance",close,close_py,"total"]]
+    return {"tables":[("Deferred tax by temporary difference",tbl),("Movement in deferred tax",recon)]}
+
+def read_finrisk(wb, rec_cy, rec_py, cash_cy, cash_py):
+    if "FinRisk" not in wb.sheetnames: return None
+    ws=wb["FinRisk"]; grids=[]
+    liq=[]
+    for r in range(6,11):
+        a=ws.cell(r,1).value
+        vals=[_num2(ws.cell(r,c).value) for c in range(2,6)]
+        if a and any(vals): liq.append([str(a).strip()]+vals+[sum(vals)])
+    if liq:
+        liq.append(["Total"]+[sum(row[i] for row in liq) for i in range(1,6)]); liq[-1].append("total")
+        grids.append(_grid(["Financial liability","< 3 months","3–12 months","1–5 years","> 5 years","Total"],liq,
+                           subhead="Liquidity risk — contractual maturities of financial liabilities"))
+    cr=[]
+    for r in range(15,17):
+        a=ws.cell(r,1).value; b=ws.cell(r,2).value; c=ws.cell(r,3).value
+        if a:
+            cy=_num2(b) if isinstance(b,(int,float)) else (rec_cy if r==15 else cash_cy)
+            py=_num2(c) if isinstance(c,(int,float)) else (rec_py if r==15 else cash_py)
+            cr.append([str(a).strip(),cy,py])
+    if cr:
+        cr.append(["Maximum exposure to credit risk",sum(x[1] for x in cr),sum(x[2] for x in cr),"total"])
+        grids.append(_grid(["Credit risk exposure","CY","PY"],cr,subhead="Credit risk — maximum exposure"))
+    return grids or None
+
+def read_ecl(wb):
+    if "ECL" not in wb.sheetnames: return None
+    ws=wb["ECL"]; rows=[]
+    for r in range(6,11):
+        a=ws.cell(r,1).value; g=ws.cell(r,2).value; rt=ws.cell(r,3).value
+        if a and isinstance(g,(int,float)):
+            rate=_num2(rt)/100.0
+            rows.append([str(a).strip(),_num2(g),"%.1f%%"%(rate*100),_num2(g)*rate])
+    if not rows: return None
+    rows.append(["Total",sum(x[1] for x in rows),"",sum(x[3] for x in rows),"total"])
+    return _grid(["Ageing bucket","Gross","Loss rate","ECL allowance"],rows,money_from=1,
+                 subhead="Expected credit loss — trade receivables (provision matrix)")
+
+def read_leases(wb):
+    if "Leases" not in wb.sheetnames: return None
+    ws=wb["Leases"]; rou=[_num2(ws.cell(5,c).value) for c in range(2,6)]
+    ll=[_num2(ws.cell(9,c).value) for c in range(2,7)]
+    if not (any(rou) or any(ll)): return None
+    tbl=[["Right-of-use assets — opening",rou[0],None],["Additions",rou[1],None],
+         ["Depreciation",-rou[2],None],["Right-of-use assets — closing",rou[3],None,"total"],
+         ["Lease liabilities — closing",ll[4],None,"total"]]
+    return {"table":tbl}
+
+def read_finsum(wb):
+    if "FinSum" not in wb.sheetnames: return None
+    ws=wb["FinSum"]
+    yrs=[ws.cell(4,c).value for c in range(2,6)]
+    headers=["\u20a6'000"]+[str(int(y)) if isinstance(y,(int,float)) else (str(y) if y else "") for y in yrs]
+    rows=[]
+    for r in range(6,16):
+        lbl=ws.cell(r,1).value
+        if not lbl or not str(lbl).strip(): continue
+        vals=[ws.cell(r,c).value for c in range(2,6)]
+        if any(isinstance(v,(int,float)) for v in vals):
+            rows.append([str(lbl).strip()]+[(_num2(v) if isinstance(v,(int,float)) else 0) for v in vals])
+    return _grid(headers,rows,money_from=1,subhead=None,bold_last=False) if rows else None
+
+def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=None):
     disclosures=disclosures or {}
     wb=openpyxl.load_workbook(path, data_only=True)
     inp=calc_core.read_inputs(wb); tb,errs=calc_core.build_trial_balance(inp); cov=inp["cover"]
@@ -214,7 +296,16 @@ def build_data(path, meta_over=None, disclosures=None, scale=None):
           {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
 
     # ---------- notes ----------
-    fw="International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs)"; fws="IFRS for SMEs"
+    if full_ifrs is None:
+        _rm=""
+        for _r in range(5,60):
+            if str(wb["Cover"].cell(_r,2).value or "").strip().lower().startswith("reporting mode"):
+                _rm=str(wb["Cover"].cell(_r,3).value or ""); break
+        full_ifrs = "full ifrs" in _rm.lower() or bool((meta_over or {}).get("full_ifrs"))
+    if full_ifrs:
+        fw="International Financial Reporting Standards (IFRS)"; fws="IFRS"
+    else:
+        fw="International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs)"; fws="IFRS for SMEs"
     ent_name=(meta_over or {}).get("name") or (cov.get("entity") or "The Company")
     def N(t,paras=None,table=None,ppe=None): 
         d={"title":t}
@@ -251,6 +342,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None):
     _pol+=[("Provisions","Provisions are recognised when the Company has a present legal or constructive obligation as a result of a past event, it is probable that an outflow of resources will be required to settle the obligation, and the amount can be reliably estimated."),
            ("Taxation","The income tax charge comprises current income tax, tertiary education tax and applicable levies, computed on the basis of the tax laws enacted or substantively enacted at the reporting date in Nigeria."),
            ("Events after the reporting date","New information received after the reporting date about conditions that existed at the reporting date is reflected in the financial statements. Events that are indicative of conditions arising after the reporting date but which are material to users are disclosed.")]
+    if full_ifrs:
+        _pol.append(("Financial instruments","Financial assets and liabilities are recognised when the Company becomes a party to the contractual provisions of the instrument. Financial assets held within a business model whose objective is to collect contractual cash flows that are solely payments of principal and interest are measured at amortised cost; other financial assets are measured at fair value. Financial liabilities are measured at amortised cost using the effective interest method."))
+        _pol.append(("Impairment of financial assets","A loss allowance for expected credit losses is recognised on financial assets measured at amortised cost. For trade receivables the Company applies the simplified approach, measuring the allowance at an amount equal to lifetime expected credit losses."))
+        if has_loans: _pol.append(("Borrowing costs","Borrowing costs directly attributable to the acquisition or construction of a qualifying asset are capitalised as part of the cost of that asset; all other borrowing costs are recognised in profit or loss in the period in which they are incurred."))
+        _pol.append(("Deferred taxation","Deferred tax is recognised on temporary differences between the carrying amounts of assets and liabilities and their corresponding tax bases, using tax rates enacted or substantively enacted at the reporting date. A deferred tax asset is recognised only to the extent that it is probable that future taxable profit will be available against which the temporary difference can be utilised."))
     notes.append(N("4. Significant Accounting Policies",[f"4.{i} {t} — {txt}" for i,(t,txt) in enumerate(_pol,1)]))
     # 5. Critical judgements & estimation uncertainty (entity-conditional; no input)
     has_ppe=abs(S(cy,{"NCA-PPE-Cost"}))>1; has_rec=abs(S(cy,{"CA-Trade-Rec","CA-Other-Rec"}))>1
@@ -317,6 +413,73 @@ def build_data(path, meta_over=None, disclosures=None, scale=None):
     # Events after the reporting date (Section 32) — app text or standard nil
     ev=disclosures.get("events_after")
     notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
+    if full_ifrs:
+        # --- Earnings per share (IAS 33) ---
+        _shares=abs(S(cy,{"EQ-ShareCap"}))   # proxy: shares from share-capital (assume ₦1 units unless a share count is provided)
+        _sh=(disclosures or {}).get("shares_in_issue") or (_shares if _shares>1 else 1)
+        _eps=pat/_sh if _sh else 0; _eps_py=pat_py/_sh if _sh else 0
+        notes.append(N(f"{n}. Earnings Per Share",
+            ["Basic earnings per share is calculated by dividing the profit for the year attributable to shareholders by the weighted-average number of ordinary shares in issue during the year."],
+            table=[["Profit for the year (₦)",pat,pat_py],["Number of ordinary shares",_sh,_sh],
+                   ["Basic earnings per share (₦)",round(_eps,2),round(_eps_py,2),"total"]])); n+=1
+        # --- Financial instruments by category (IFRS 9 / IFRS 7) ---
+        far=S(cy,{"CA-Trade-Rec","CA-Other-Rec"}); far_py=S(py,{"CA-Trade-Rec","CA-Other-Rec"})
+        fac=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); fac_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
+        fap=S(cy,{"CL-Trade-Pay","CL-Accruals"},-1); fap_py=S(py,{"CL-Trade-Pay","CL-Accruals"},-1)
+        fab=S(cy,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1); fab_py=S(py,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1)
+        fad=S(cy,{"CL-DCA"},-1); fad_py=S(py,{"CL-DCA"},-1)
+        fi=[["Financial assets at amortised cost",None,None],
+            ["Trade and other receivables",far,far_py],
+            ["Cash and cash equivalents",fac,fac_py],
+            ["Total financial assets",far+fac,far_py+fac_py,"total"],
+            ["Financial liabilities at amortised cost",None,None],
+            ["Trade and other payables",fap,fap_py]]
+        if abs(fab)>=1 or abs(fab_py)>=1: fi.append(["Borrowings",fab,fab_py])
+        if abs(fad)>=1 or abs(fad_py)>=1: fi.append(["Directors\' current account",fad,fad_py])
+        fi.append(["Total financial liabilities",fap+fab+fad,fap_py+fab_py+fad_py,"total"])
+        notes.append(N(f"{n}. Financial Instruments by Category",
+            ["The carrying amounts of the Company\'s financial instruments, all of which are measured at amortised cost, are set out below. Their carrying amounts approximate their fair values."],
+            table=fi)); n+=1
+        # --- Group B: schedule-driven Full-IFRS notes ---
+        _dt=read_deftax(wb, cov.get("cit_rate",0.30) or 0.30)
+        if _dt:
+            notes.append(N(f"{n}. Deferred Taxation",["Deferred tax arises on temporary differences as follows:"],table=_dt["tables"][0][1])); n+=1
+        _fr=read_finrisk(wb, far, far_py, fac, fac_py)
+        if _fr:
+            notes.append({"title":f"{n}. Financial Risk Management — Detail","paras":["Quantitative disclosures on the Company\'s financial risk exposures:"],"grids":_fr}); n+=1
+        _ecl=read_ecl(wb)
+        if _ecl:
+            notes.append({"title":f"{n}. Expected Credit Losses","paras":["The loss allowance on trade receivables is measured using a provision matrix:"],"grids":[_ecl]}); n+=1
+        _lease=read_leases(wb)
+        if _lease:
+            notes.append(N(f"{n}. Leases",["Right-of-use assets and lease liabilities under IFRS 16:"],table=_lease["table"])); n+=1
+        _fs=read_finsum(wb)
+        if _fs and not first_year:
+            notes.append({"title":f"{n}. Five-Year Financial Summary","paras":["The five-year financial summary does not form part of the audited financial statements."],"grids":[_fs]}); n+=1
+        # --- Value Added Statement (Nigerian requirement), reconciling ---
+        import re as _re
+        def _isstaff(nm): return bool(_re.search(r"salar|wage|staff|pension|paye|gratuit|welfare|nsitf|nhf",str(nm or "").lower()))
+        staff=sum(v["cy_signed"] for c,v in tb.items() if v["section"] in ("PL-Admin","PL-Selling") and _isstaff(v["name"]))
+        staff_py=sum(py.get(c,0.0) for c,v in tb.items() if v["section"] in ("PL-Admin","PL-Selling") and _isstaff(v["name"]))
+        dep_c=cy.get("6800",0)+cy.get("6810",0); dep_py2=py.get("6800",0)+py.get("6810",0)
+        fin_c=S(cy,{"PL-FinCost"}); fin_py2=S(py,{"PL-FinCost"})
+        tax_c=taxcy["total_tax"]; tax_py2=taxpy["total_tax"]
+        bought=(cos+admin+sell)-staff-dep_c; bought_py=(cos_py+admin_py+sell_py)-staff_py-dep_py2
+        va=rev+oi-bought; va_py=rev_py+oi_py-bought_py
+        ret=dep_c+pat; ret_py=dep_py2+pat_py
+        vas=[["Revenue",rev,rev_py]]
+        if abs(oi)>=1 or abs(oi_py)>=1: vas.append(["Other income",oi,oi_py])
+        vas+=[["Bought-in materials and services",-bought,-bought_py],
+              ["Value added",va,va_py,"total"],
+              ["Applied as follows:",None,None],
+              ["To employees — salaries and benefits",staff,staff_py],
+              ["To government — taxation",tax_c,tax_py2],
+              ["To providers of capital — finance cost",fin_c,fin_py2],
+              ["Retained for maintenance and expansion — depreciation and retained profit",ret,ret_py],
+              ["Value distributed",staff+tax_c+fin_c+ret,staff_py+tax_py2+fin_py2+ret_py,"total"]]
+        notes.append(N(f"{n}. Statement of Value Added",
+            ["Value added is the wealth the Company has created by its own and its employees\' efforts. This statement shows that wealth and how it was distributed."],
+            table=vas)); n+=1
     notes.append(N(f"{n}. Going Concern",["The Directors have a reasonable expectation that the Company has adequate resources to continue in operational existence for the foreseeable future; accordingly, the going-concern basis has been adopted in preparing these financial statements."])); n+=1
     refmap={"6":str(ref_rev),"8":str(ref_cos),"9":str(ref_admin),"10":str(ref_sell),"12":str(ref_tax),
             "13":str(ref_ppe),"14":str(ref_rec),"15":str(ref_cash),"16":str(ref_sc),"17":str(ref_re),
@@ -369,6 +532,9 @@ def build_data(path, meta_over=None, disclosures=None, scale=None):
             if _nd.get("ppe"):
                 _nd["ppe"]["classes"]=[[row[0]]+[(v/scale if isinstance(v,(int,float)) else v) for v in row[1:]] for row in _nd["ppe"]["classes"]]
                 _nd["ppe"]["total"]=[(v/scale if isinstance(v,(int,float)) else v) for v in _nd["ppe"]["total"]]
+            for _g in (_nd.get("grids") or []):
+                _mf=_g.get("money_from",1)
+                _g["rows"]=[[(c/scale if (i>=_mf and isinstance(c,(int,float))) else c) for i,c in enumerate(row)] for row in _g["rows"]]
     return {"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,
             "fin_summary":None,"tax_schedules":None,"flags":res["errors"],
             "tie_outs":[{"name":x,"pass":bool(p)} for x,p in tie]}
