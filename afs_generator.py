@@ -55,8 +55,8 @@ HY="en_GB"
 body=Sx("body",alignment=TA_JUSTIFY,leading=15.5,spaceAfter=7,hyphenationLang=HY,
         embeddedHyphenation=1,uriWasteReduce=0.3); bodyc=Sx("bodyc",leading=15.5)
 h1=Sx("h1",fontName="DVB",fontSize=15,textColor=NAVY,leading=19,spaceAfter=2)
-h2=Sx("h2",fontName="DVB",fontSize=10.5,textColor=NAVY2,spaceBefore=12,spaceAfter=4)
-sub=Sx("sub",fontName="DVI",fontSize=9.5,textColor=GREY,spaceAfter=8)
+h2=Sx("h2",fontName="DVB",fontSize=10.5,textColor=NAVY2,spaceBefore=12,spaceAfter=4,keepWithNext=1)
+sub=Sx("sub",fontName="DVI",fontSize=9.5,textColor=GREY,spaceAfter=8,keepWithNext=1)
 bullet=Sx("bullet",alignment=TA_JUSTIFY,leftIndent=14,bulletIndent=3,leading=15.5,
           spaceAfter=4,hyphenationLang=HY,embeddedHyphenation=1)
 sig=Sx("sig",fontName="DVB",fontSize=9.5,textColor=NAVY2)
@@ -375,7 +375,6 @@ def build(data,out_path):
     A(Paragraph(f"Responsibilities of the {GOVS} for the Financial Statements",sub))
     A(Paragraph(f"The {GOVS} are responsible for the preparation of financial statements that give a true and fair view in accordance with the {M['framework_short']} and the requirements of the Companies and Allied Matters Act, 2020 and the Financial Reporting Council of Nigeria Act, and for such internal control as the {GOVS} determine is necessary to enable the preparation of financial statements that are free from material misstatement, whether due to fraud or error.",body))
     A(Paragraph(f"In preparing the financial statements, the {GOVS} are responsible for assessing the {ENT}'s ability to continue as a going concern, disclosing, as applicable, matters related to going concern, and using the going-concern basis of accounting unless the {GOVS} either intend to liquidate the {ENT} or to cease operations, or have no realistic alternative but to do so.",body))
-    A(PageBreak())
     A(Paragraph("Auditor's Responsibilities for the Audit of the Financial Statements",sub))
     A(Paragraph("Our objectives are to obtain reasonable assurance about whether the financial statements as a whole are free from material misstatement, whether due to fraud or error, and to issue an auditor's report that includes our opinion. Reasonable assurance is a high level of assurance, but is not a guarantee that an audit conducted in accordance with ISAs will always detect a material misstatement when it exists. Misstatements can arise from fraud or error and are considered material if, individually or in the aggregate, they could reasonably be expected to influence the economic decisions of users taken on the basis of these financial statements.",body))
     A(Paragraph(f"As part of an audit in accordance with ISAs, we exercise professional judgement and maintain professional scepticism throughout the audit. We also identify and assess the risks of material misstatement, whether due to fraud or error, design and perform audit procedures responsive to those risks, and obtain audit evidence that is sufficient and appropriate to provide a basis for our opinion; obtain an understanding of internal control relevant to the audit in order to design audit procedures that are appropriate in the circumstances; evaluate the appropriateness of accounting policies used and the reasonableness of accounting estimates and related disclosures made by the {GOVS}; conclude on the appropriateness of the {GOVS}' use of the going-concern basis of accounting; and evaluate the overall presentation, structure and content of the financial statements.",body))
@@ -418,22 +417,15 @@ def build(data,out_path):
     for x in heading("Notes to the Financial Statements",f"For the year ended {M['period_end']}"): A(x)
     _py=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "")
     for note in data["notes"]:
-        block=[Paragraph(note["title"],h2)]
-        for p in note.get("paras",[]): block.append(Paragraph(p,body))
-        if note.get("table"): block.append(Spacer(1,2)); block.append(note_table(note["table"],fy_first,(M["fy"] or ""),_py))
-        if note.get("ppe"): block.append(Spacer(1,2)); block.append(ppe_table(note["ppe"],fy_first))
-        grids=note.get("grids") or []
-        start=0
-        if grids and not note.get("table") and not note.get("ppe"):
-            g=grids[0]                                  # keep the heading with its first schedule
-            if g.get("subhead"): block.append(Spacer(1,2)); block.append(Paragraph("<b>"+g["subhead"]+"</b>",body))
-            block.append(grid_table(g)); start=1
-        A(KeepTogether(block))
-        for g in grids[start:]:
-            sg=[]
-            if g.get("subhead"): sg.append(Paragraph("<b>"+g["subhead"]+"</b>",body))
-            sg.append(grid_table(g))
-            A(Spacer(1,3)); A(KeepTogether(sg))
+        A(Paragraph(note["title"],h2))                     # h2 keepWithNext prevents an orphaned heading
+        for p in note.get("paras",[]): A(Paragraph(p,body))
+        if note.get("table"): A(note_table(note["table"],fy_first,(M["fy"] or ""),_py))
+        if note.get("ppe"): A(ppe_table(note["ppe"],fy_first))
+        for g in (note.get("grids") or []):
+            if g.get("subhead"):
+                _sh=Paragraph("<b>"+g["subhead"]+"</b>",body); _sh.keepWithNext=1
+                A(_sh)
+            A(grid_table(g))
         A(Spacer(1,10))
     if data.get("fin_summary"):
         A(PageBreak())
