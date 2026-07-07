@@ -264,10 +264,13 @@ def heading(txt,subtitle=None):
 
 def signatures(names,date_str,role="Director"):
     w=(PAGE_W-LM-RM)/len(names)
-    t=Table([[Paragraph(nm,sig) for nm in names],
+    t=Table([[Paragraph("&nbsp;",sig) for _ in names],           # blank signing space above the line
+             [Paragraph(nm,sig) for nm in names],
              [Paragraph(role,sigsub) for _ in names],
-             [Paragraph(f"Dated: {date_str}",sigdate) for _ in names]],colWidths=[w]*len(names))
-    t.setStyle(TableStyle([("LINEABOVE",(0,0),(-1,0),0.8,colors.black),("TOPPADDING",(0,0),(-1,0),4),
+             [Paragraph(f"Dated: {date_str}",sigdate) for _ in names]],
+            colWidths=[w]*len(names), rowHeights=[16*mm,None,None,None])
+    t.setStyle(TableStyle([("LINEABOVE",(0,1),(-1,1),0.8,colors.black),("TOPPADDING",(0,1),(-1,1),4),
+                           ("VALIGN",(0,0),(-1,0),"BOTTOM"),
                            ("LEFTPADDING",(0,0),(-1,-1),0),("BOTTOMPADDING",(0,0),(-1,-1),3)]))
     return t
 
@@ -382,17 +385,19 @@ def build(data,out_path):
     A(Paragraph("Report on Other Legal and Regulatory Requirements",h2))
     A(Paragraph(f"In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the {ENT}, so far as appears from our examination of those books; and (c) the {ENT}'s Statement of Financial Position and {T_SOCI} are in agreement with the books of account.",body))
     A(Spacer(1,16))
+    _sigblk=[]                                              # keep the whole signature block on one page
     if M["mode"]=="final" and M.get("signature_image"):
-        _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; A(_sig); A(Spacer(1,1))
-    A(Paragraph(E["auditor_name"],sig)); A(Paragraph("Chartered Accountants",sigdate))
+        _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; _sigblk += [_sig, Spacer(1,1)]
+    _sigblk += [Paragraph(E["auditor_name"],sig), Paragraph("Chartered Accountants",sigdate)]
     if M["mode"]=="final":
-        A(Spacer(1,4)); A(Paragraph(f"FRC No: {M['frc_no']}",sigsub)); A(Paragraph(f"ICAN Stamp No: {M['ican_stamp_no']}",sigsub))
+        _sigblk += [Spacer(1,4), Paragraph(f"FRC No: {M['frc_no']}",sigsub), Paragraph(f"ICAN Stamp No: {M['ican_stamp_no']}",sigsub)]
         if M.get("stamp_image"):
-            A(Spacer(1,4)); A(scaled_image(M["stamp_image"], 42*mm, 42*mm))
-    A(Spacer(1,6))
+            _sigblk += [Spacer(1,4), scaled_image(M["stamp_image"], 42*mm, 42*mm)]
+    _sigblk.append(Spacer(1,6))
     _aud_loc = M.get("firm_address") or M.get("firm_city")   # auditor's own address, never the client's
-    if _aud_loc: A(Paragraph(_aud_loc, body))
-    A(Paragraph(f"Dated: {M['sign_date']}",sigdate)); A(PageBreak())
+    if _aud_loc: _sigblk.append(Paragraph(_aud_loc, body))
+    _sigblk.append(Paragraph(f"Dated: {M['sign_date']}",sigdate))
+    A(KeepTogether(_sigblk)); A(PageBreak())
     # 6 SOCI
     for x in heading(T_SOCI,f"For the year ended {M['period_end']}"): A(x)
     _cyl=M["fy"] or "CY"; _pyl=(str(int(M["fy"])-1) if (M["fy"] and str(M["fy"]).isdigit()) else "PY")
