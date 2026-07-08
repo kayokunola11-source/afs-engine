@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-05-lending-v35"  # Lending variant (Full IFRS): banking-style P&L, IFRS 9 3-stage loan book, ECL reconciliation
+ENGINE_VERSION = "2026-07-08-scale-v36"  # Cover 'Presentation scale' authoritative (N'000 fix) + signature/pagination layout fixes
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile","cover_scale_authoritative","layout_keeptogether"]}
 
 @app.post("/generate")
 async def generate(
@@ -239,7 +239,9 @@ async def generate(
             if shares_in_issue:
                 try: _disc["shares_in_issue"]=float(str(shares_in_issue).replace(",",""))
                 except Exception: pass
-            _scale=int(presentation_scale) if str(presentation_scale).strip().isdigit() else None
+            # Workbook Cover's "Presentation scale" is authoritative; the form only *forces* thousands.
+            # (Prevents a full-Naira form default from silently overriding a "Thousands (N'000)" Cover.)
+            _scale=1000 if str(presentation_scale).strip()=="1000" else None
             _fifrs=(template_framework.strip().lower()=="full_ifrs") if template_framework else None
             _cc_data = afs_pycore.build_data(recalced, meta_over={
                 "name": client_name or data["meta"].get("entity_name"),

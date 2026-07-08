@@ -29,7 +29,7 @@ LM = RM = 22*mm; TM = 26*mm; BM = 20*mm
 
 
 from reportlab.lib.utils import ImageReader
-UNIT="\u20a6"
+UNIT="N"
 
 def scaled_image(path, max_w, max_h):
     """Return an Image scaled to fit within max_w x max_h, preserving aspect ratio."""
@@ -288,7 +288,7 @@ def _apply_theme(meta):
         stl.textColor = NAVY
 
 def build(data,out_path):
-    global UNIT; UNIT=data.get("meta",{}).get("currency_unit","\u20a6")
+    global UNIT; UNIT=data.get("meta",{}).get("currency_unit","N")
     _apply_theme(data.get("meta", {}))
     doc=BaseDocTemplate(out_path,pagesize=A4,leftMargin=LM,rightMargin=RM,topMargin=TM,bottomMargin=BM+8*mm)
     frame=Frame(LM,BM+8*mm,PAGE_W-LM-RM,PAGE_H-TM-(BM+8*mm),id="main",leftPadding=0,rightPadding=0,topPadding=0,bottomPadding=0)

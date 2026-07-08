@@ -448,13 +448,13 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         return out+[["Total",tot[0],tot[1],"total"]]
     notes=[]
     notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Company”) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act with Registration Number {(meta_over or {}).get('rc','') or '[RC to be confirmed]'}. The Company is domiciled in Lagos, Nigeria."]))
-    notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with the {fw} and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (₦), the functional and presentation currency of the Company."]))
+    notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with the {fw} and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (N), the functional and presentation currency of the Company."]))
     notes.append(N("3. Operating Environment",["The Nigerian business environment in 2025 continued to be characterised by macro-economic conditions including elevated inflation, foreign-exchange volatility, rising input costs and evolving fiscal and monetary policy. The Directors continue to monitor developments in the Company’s industry and adapt the operating model accordingly."]))
     # 4. Accounting policies (entity-conditional: only what the accounts actually contain)
     has_inv=abs(S(cy,{"CA-Inventory"}))>=1 or abs(S(py,{"CA-Inventory"}))>=1
     has_intang=abs(S(cy,{"NCA-Intangible-Cost","NCA-Intangible-Amort"}))>=1 or abs(S(py,{"NCA-Intangible-Cost","NCA-Intangible-Amort"}))>=1
     has_loans=abs(S(cy,{"NCL-Loans","CL-Loans","CL-Overdraft"}))>=1 or abs(S(py,{"NCL-Loans","CL-Loans","CL-Overdraft"}))>=1
-    _pol=[("Statement of compliance and basis of preparation","The financial statements have been prepared in accordance with the "+fws+" as issued by the International Accounting Standards Board, on the historical-cost basis, and are presented in Nigerian Naira (₦), the functional and presentation currency of the Company."),
+    _pol=[("Statement of compliance and basis of preparation","The financial statements have been prepared in accordance with the "+fws+" as issued by the International Accounting Standards Board, on the historical-cost basis, and are presented in Nigerian Naira (N), the functional and presentation currency of the Company."),
           ("Revenue recognition","Revenue is measured at the fair value of the consideration received or receivable, net of discounts, returns and value-added tax. Revenue is recognised when the amount can be reliably measured, it is probable that the economic benefits will flow to the Company, and control of the goods or services has been transferred to the customer."),
           ("Property, plant and equipment","Property, plant and equipment is stated at cost less accumulated depreciation and any accumulated impairment losses. Depreciation is recognised on a straight-line basis to write off the cost of each asset, less residual value, over its estimated useful life. The depreciation rates applied are set out in the property, plant and equipment note.")]
     if has_intang: _pol.append(("Intangible assets","Intangible assets acquired separately are stated at cost less accumulated amortisation and any accumulated impairment losses. Amortisation is recognised on a straight-line basis over the estimated useful lives of the assets."))
@@ -530,7 +530,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         kmp=disclosures.get("kmp_compensation"); kmp_py=disclosures.get("kmp_compensation_py",0) or 0
         rp_par=["The Company is controlled by its directors and shareholders, who are regarded as related parties. In the ordinary course of business the Company entered into transactions and had balances with related parties as set out below.",
                 "Directors' current account — "+terms,
-                ("Key management personnel compensation for the year amounted to ₦{:,.0f} (prior year: ₦{:,.0f}).".format(float(kmp),float(kmp_py)) if kmp is not None else "Key management personnel compensation is to be confirmed by the Directors.")]
+                ("Key management personnel compensation for the year amounted to N{:,.0f} (prior year: N{:,.0f}).".format(float(kmp),float(kmp_py)) if kmp is not None else "Key management personnel compensation is to be confirmed by the Directors.")]
         rp_tab=[["Directors' current account", dca_cy, dca_py]]
         if kmp is not None: rp_tab.append(["Key management personnel compensation", float(kmp), float(kmp_py)])
         notes.append(N(f"{n}. Related Party Transactions and Balances", rp_par, table=rp_tab)); n+=1
@@ -584,13 +584,13 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                 notes.append(N(f"{n}. Regulatory Capital Adequacy",
                     ["The Company is a SEC-registered fund/portfolio manager and is required to maintain minimum regulatory capital. Its capital position at the reporting date was:"],table=_ca)); n+=1
         # --- Earnings per share (IAS 33) ---
-        _shares=abs(S(cy,{"EQ-ShareCap"}))   # proxy: shares from share-capital (assume ₦1 units unless a share count is provided)
+        _shares=abs(S(cy,{"EQ-ShareCap"}))   # proxy: shares from share-capital (assume N1 units unless a share count is provided)
         _sh=(disclosures or {}).get("shares_in_issue") or (_shares if _shares>1 else 1)
         _eps=pat/_sh if _sh else 0; _eps_py=pat_py/_sh if _sh else 0
         notes.append(N(f"{n}. Earnings Per Share",
             ["Basic earnings per share is calculated by dividing the profit for the year attributable to shareholders by the weighted-average number of ordinary shares in issue during the year."],
-            table=[["Profit for the year (₦)",pat,pat_py],["Number of ordinary shares",_sh,_sh],
-                   ["Basic earnings per share (₦)",round(_eps,2),round(_eps_py,2),"total"]])); n+=1
+            table=[["Profit for the year (N)",pat,pat_py],["Number of ordinary shares",_sh,_sh],
+                   ["Basic earnings per share (N)",round(_eps,2),round(_eps_py,2),"total"]])); n+=1
         # --- Financial instruments by category (IFRS 9 / IFRS 7) ---
         far=S(cy,{"CA-Trade-Rec","CA-Other-Rec"}); far_py=S(py,{"CA-Trade-Rec","CA-Other-Rec"})
         fac=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); fac_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
@@ -667,8 +667,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
           "rc":(meta_over or {}).get("rc","[RC]"),"auditor":cov.get("entity") and "Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
           "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
           "first_year":False,"signatories":["Director","Director"],"sig_words":"two",
-          "results_para":f"The Company reported revenue of ₦{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of ₦{abs(pat):,.0f}.",
-          "ppe_para":f"The depreciation charge for the year amounted to ₦{dep_charge:,.0f}.",
+          "results_para":f"The Company reported revenue of N{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of N{abs(pat):,.0f}.",
+          "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
           "frc_no":"","ican_stamp_no":"","stamp_image":None,"signature_image":None,"total_pages":20}
     entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
             "activity":"[Principal activity to be confirmed]","activity_short":"[Principal activity]",
@@ -681,7 +681,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
          ("SOFP balances (prior year)",abs(ta_py-tel_py)<1)]
     if abs(S(cy,{"NCA-PPE-Cost"}))>1 and abs(res.get("_cap_cy",0))<1:
         res["errors"].append("capital allowances are zero while PPE exists — company income tax may be overstated")
-    # ---- presentation scale (full Naira or ₦'000) ----
+    # ---- presentation scale (full Naira or N'000) ----
     if scale is None:
         _sc=(meta_over or {}).get("scale")
         if _sc: scale=int(_sc)
@@ -691,8 +691,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                 if str(wb["Cover"].cell(_r,2).value or "").strip().lower().startswith("presentation scale"):
                     _lab=str(wb["Cover"].cell(_r,3).value or ""); break
             scale=1000 if "000" in _lab else 1
-    if am: scale=1                      # asset-manager TB is already in ₦'000
-    meta["currency_unit"]="₦'000" if (scale==1000 or am) else "₦"
+    if am: scale=1                      # asset-manager TB is already in N'000
+    meta["currency_unit"]="N'000" if (scale==1000 or am) else "N"
     if scale and scale!=1:
         for _rows in (soci,sofp,scf):
             for _r in _rows:
@@ -867,7 +867,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
         return d
     notes=[]; ref={}
     notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Organisation”) is a not-for-profit organisation registered in Nigeria as an Incorporated Trustees under Part F of the Companies and Allied Matters Act, 2020 with Registration Number {(meta_over or {}).get('rc','') or '[RC/IT number to be confirmed]'}. The Organisation is domiciled in Nigeria and its activities are directed at its charitable objects and are not carried on for profit."]))
-    notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with {fw}, and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (₦), the functional and presentation currency of the Organisation. As a not-for-profit entity, the Organisation presents a Statement of Financial Activities in place of a statement of profit or loss, and accounts for its resources on a fund-accounting basis."]))
+    notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with {fw}, and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (N), the functional and presentation currency of the Organisation. As a not-for-profit entity, the Organisation presents a Statement of Financial Activities in place of a statement of profit or loss, and accounts for its resources on a fund-accounting basis."]))
     notes.append(N("3. Fund Accounting",["Unrestricted (general) funds are funds that are available for use at the discretion of the Trustees in furtherance of the general objects of the Organisation.",
         "Restricted funds are funds subject to specific conditions imposed by donors or by the terms of an appeal. Expenditure meeting those conditions is charged to the relevant restricted fund.",
         "Endowment funds are funds held on terms requiring the capital to be retained; only the income or a specified portion may be applied.",
@@ -913,7 +913,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     tr=disclosures.get("kmp_compensation")
     notes.append(N(f"{n}. Trustees and Related Parties",
         ["The Trustees give their time and services to the Organisation without remuneration, except for the reimbursement of out-of-pocket expenses incurred in furtherance of the Organisation’s objects." if not tr else
-         f"Key management personnel and Trustees received emoluments and reimbursements totalling ₦{float(tr):,.0f} during the year.",
+         f"Key management personnel and Trustees received emoluments and reimbursements totalling N{float(tr):,.0f} during the year.",
          disclosures.get("related_party_terms") or "There were no other material related-party transactions during the year requiring disclosure."])); n+=1
     ev=disclosures.get("events_after")
     notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
@@ -939,8 +939,8 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
           "rc":(meta_over or {}).get("rc","[RC/IT]"),"auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
           "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
           "first_year":False,"signatories":["Trustee","Trustee"],"sig_words":"two",
-          "results_para":f"The Organisation recorded total income of ₦{tot_inc:,.0f} and total expenditure of ₦{tot_exp:,.0f}, resulting in a net {'deficit' if _sw<0 else 'surplus'} for the year of ₦{abs(_sw):,.0f}, which has been transferred to the accumulated funds.",
-          "ppe_para":f"The depreciation charge for the year amounted to ₦{dep_charge:,.0f}.",
+          "results_para":f"The Organisation recorded total income of N{tot_inc:,.0f} and total expenditure of N{tot_exp:,.0f}, resulting in a net {'deficit' if _sw<0 else 'surplus'} for the year of N{abs(_sw):,.0f}, which has been transferred to the accumulated funds.",
+          "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
           "frc_no":"","ican_stamp_no":"","stamp_image":None,"signature_image":None,"total_pages":20,
           "labels":labels}
     entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
@@ -964,7 +964,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
             if str(wb["Cover"].cell(_r,2).value or "").strip().lower().startswith("presentation scale"):
                 _lab=str(wb["Cover"].cell(_r,3).value or ""); break
         scale=1000 if "000" in _lab else 1
-    meta["currency_unit"]="₦'000" if scale==1000 else "₦"
+    meta["currency_unit"]="N'000" if scale==1000 else "N"
     if scale and scale!=1:
         for _rows in (soci,sofp,scf):
             for _r in _rows:
