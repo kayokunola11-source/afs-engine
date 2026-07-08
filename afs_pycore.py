@@ -1,8 +1,122 @@
 # -*- coding: utf-8 -*-
 """Slice 1b assembler: build the afs_generator data dict entirely from the calc core."""
-import openpyxl, calc_core
+import openpyxl, calc_core, re
 from calc_core import ncode, num
 from collections import defaultdict
+
+
+def read_entity(wb):
+    """Layout-agnostic wrapper — never raises; on any problem returns {} so the caller
+    keeps its placeholder fallbacks and the generation cannot fail on a malformed sheet."""
+    try:
+        return _read_entity(wb)
+    except Exception:
+        return {}
+
+
+def _read_entity(wb):
+    """Read the workbook 'Entity' sheet into a dict, layout-agnostic (matches on labels,
+    not fixed rows, because SME / Full IFRS / Asset-Mgmt / NGO templates lay it out differently).
+    Blank or placeholder values ('to complete', 'tbc', 'n/a' ...) are treated as missing so the
+    generator keeps its own '[to be confirmed]' fallback rather than printing 'To complete'."""
+    sh = None
+    for sn in wb.sheetnames:
+        if sn.strip().lower() == "entity":
+            sh = wb[sn]; break
+    if sh is None:
+        return {}
+
+    def _instructional(s):
+        """True when a cell holds grey template guidance rather than real data."""
+        low = str(s).lower()
+        return (len(str(s)) > 60 or any(p in low for p in (
+            "list ", "per row", "add as many", "as needed", "one per", "e.g", "example",
+            "separate with", "insert", "enter ", "type ", "complete", "bank account",
+            "add rows", "if applicable", "select ")))
+
+    def clean(v, allow_long=True):
+        if v is None: return None
+        if hasattr(v, "strftime"): return None            # a date cell is never an address/name
+        s = str(v).strip()
+        if not s: return None
+        low = s.lower()
+        if low.startswith("to complete") or low.startswith("to be") \
+           or low in ("tbc","n/a","na","nil","-","--","[to complete]","none"):
+            return None
+        return s
+
+    rows = []   # (row, label_lower, value, label_col)
+    for r in range(1, min(sh.max_row, 90) + 1):
+        label = None; labelcol = None
+        for c in (1, 2):
+            lv = sh.cell(r, c).value
+            if lv not in (None, "") and not isinstance(lv, (int, float)) and not hasattr(lv, "strftime"):
+                label = str(lv).strip().lower(); labelcol = c; break
+        val = None
+        if labelcol:
+            for c in range(labelcol + 1, labelcol + 6):
+                cv = clean(sh.cell(r, c).value)
+                if cv: val = cv; break
+        rows.append((r, label, val, labelcol))
+
+    def find(*keywords, exclude=()):
+        for r, label, val, lc in rows:
+            if label and any(k in label for k in keywords) and not any(x in label for x in exclude):
+                return r, val
+        return None, None
+    def fv(*keywords, exclude=()):
+        return find(*keywords, exclude=exclude)[1]
+
+    info = {}
+    if (v := fv("registered name", "entity name", "name of entity", "name of company")): info["name"] = v
+    if (v := fv("rc", "business name no", "registration num", "rc /", "rc no")):          info["rc"] = v
+    if (v := fv("principal activity", "nature of business", "activity")):                  info["activity"] = v
+    if (v := fv("registered office")):                                                     info["office"] = v
+    if (v := fv("city", "state")):                                                         info["city"] = v
+    if (v := fv("tax identification", "tin")):                                             info["tin"] = v
+    if (v := fv("auditor")):                                                               info["auditor"] = v
+
+    # directors: value may be on the label row (a comma / newline list) or on the rows below the label
+    dr, dval = find("director", "partner", "proprietor", "trustee",
+                    exclude=("independent", "report", "responsib", "statement"))
+    dirs = []
+    if dval and not _instructional(dval):
+        dirs = [d.strip() for d in re.split(r"[\n,;]| and ", dval) if d.strip()]
+    elif dr is not None:
+        # directors listed one-per-row *below* the heading: only take unlabelled continuation
+        # rows (a new labelled field ends the list) so we never grab an adjacent field's value.
+        for r, label, val, lc in rows:
+            if r <= dr or r > dr + 12:
+                continue
+            if label:
+                break
+            if val and not _instructional(val):
+                dirs.append(val)
+    dirs = [d for d in dirs if not _instructional(d)]
+    if dirs:
+        info["directors"] = dirs
+
+    # bankers: prefer operational / own-funds account; skip segregated client accounts
+    bval = fv("banker", exclude=("segregated", "client account"))
+    if bval and not _instructional(bval):
+        info["bankers"] = [b.strip() for b in re.split(r"[\n,;]", bval) if b.strip()]
+
+    return info
+
+
+def _office_lines(office, city):
+    """Return the registered-office block as a list of paragraph lines (tidy trailing punctuation,
+    drop a City/State line already contained in the address)."""
+    def tidy(s): return re.sub(r"[\s.]+$", "", str(s).strip())
+    lines = []
+    if office:
+        lines = [tidy(p) for p in str(office).split("\n") if p.strip()] or [tidy(office)]
+    if city:
+        c = tidy(city)
+        joined = " ".join(lines).lower()
+        if c and c.lower() not in joined:
+            lines.append(c)
+    return [l for l in lines if l]
 
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
 CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
@@ -430,8 +544,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         fw="International Financial Reporting Standards (IFRS)"; fws="IFRS"
     else:
         fw="International Financial Reporting Standard for Small and Medium-sized Entities (IFRS for SMEs)"; fws="IFRS for SMEs"
-    ent_name=(meta_over or {}).get("name") or (cov.get("entity") or "The Company")
-    def N(t,paras=None,table=None,ppe=None): 
+    _einfo=read_entity(wb)
+    ent_name=(meta_over or {}).get("name") or _einfo.get("name") or (cov.get("entity") or "The Company")
+    ent_rc=(meta_over or {}).get("rc") or _einfo.get("rc")
+    def N(t,paras=None,table=None,ppe=None):
         d={"title":t}
         if paras: d["paras"]=paras
         if table is not None: d["table"]=table
@@ -447,7 +563,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         tot=[sum(r[1] for r in out), sum(r[2] for r in out)]
         return out+[["Total",tot[0],tot[1],"total"]]
     notes=[]
-    notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Company”) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act with Registration Number {(meta_over or {}).get('rc','') or '[RC to be confirmed]'}. The Company is domiciled in Lagos, Nigeria."]))
+    notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Company”) is a limited liability company incorporated in Nigeria under the Companies and Allied Matters Act with Registration Number {ent_rc or '[RC to be confirmed]'}. The Company is domiciled in {(_einfo.get('city') or 'Lagos, Nigeria')}."]))
     notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with the {fw} and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (N), the functional and presentation currency of the Company."]))
     notes.append(N("3. Operating Environment",["The Nigerian business environment in 2025 continued to be characterised by macro-economic conditions including elevated inflation, foreign-exchange volatility, rising input costs and evolving fiscal and monetary policy. The Directors continue to monitor developments in the Company’s industry and adapt the operating model accordingly."]))
     # 4. Accounting policies (entity-conditional: only what the accounts actually contain)
@@ -511,6 +627,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
            ["Tax effect of capital allowances",capA*rate,capA_py*rate]]
     if abs(min_adj)>=1 or abs(min_adj_py)>=1: recon.append(["Minimum-tax / other adjustment",min_adj,min_adj_py])
     recon.append(["Tertiary Education Tax and levies",taxcy["tet"]+taxcy["development_levy"]+taxcy["police_trust_fund"],taxpy["tet"]+taxpy["development_levy"]+taxpy["police_trust_fund"]])
+    # balancing line so the reconciliation always foots (chiefly the tax effect of losses not recognised as a deferred tax asset)
+    _rbal=taxcy["total_tax"]-sum(r[1] for r in recon[1:]); _rbal_py=taxpy["total_tax"]-sum(r[2] for r in recon[1:])
+    if abs(_rbal)>=1 or abs(_rbal_py)>=1:
+        recon.append(["Tax effect of unrecognised tax losses" if (pbt<0 or pbt_py<0) else "Other reconciling differences",_rbal,_rbal_py])
     recon.append(["Tax expense for the year",taxcy["total_tax"],taxpy["total_tax"],"total"])
     notes.append(N(f"{n}. Reconciliation of Tax Expense",["The tax expense for the year reconciles to the accounting profit multiplied by the statutory tax rate as follows:"],table=recon)); n+=1
     ref_ppe=n; ppe=_ppe(wb); notes.append(N(f"{n}. Property, Plant and Equipment",ppe=ppe or {"classes":[],"total":[0,0,0,0]})); n+=1
@@ -662,19 +782,27 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         for r in rows_:
             if r.get("note") in refmap: r["note"]=refmap[r["note"]]
 
+    _dir_src=(meta_over or {}).get("directors") or _einfo.get("directors")
+    _sigs=list(_dir_src[:2]) if _dir_src else ["Director","Director"]
+    _sig_words={1:"one",2:"two"}.get(len(_sigs),"two")
     meta={"mode":"draft","template":"SME","entity_name":ent_name,"short_name":ent_name.split()[0],
           "name_line2":" ".join(ent_name.split()[1:]) or "Limited","activity_short":"[Principal activity]",
-          "rc":(meta_over or {}).get("rc","[RC]"),"auditor":cov.get("entity") and "Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
+          "rc":ent_rc or "[RC]","auditor":cov.get("entity") and "Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
           "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
-          "first_year":False,"signatories":["Director","Director"],"sig_words":"two",
+          "first_year":False,"signatories":_sigs,"sig_words":_sig_words,
           "results_para":f"The Company reported revenue of N{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of N{abs(pat):,.0f}.",
           "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
           "frc_no":"","ican_stamp_no":"","stamp_image":None,"signature_image":None,"total_pages":20}
+    _act=(meta_over or {}).get("activity") or _einfo.get("activity")
+    _dirs=(meta_over or {}).get("directors") or _einfo.get("directors") or ["Director"]
+    _office=_office_lines(_einfo.get("office"), _einfo.get("city")) or ["Lagos, Nigeria"]
+    _bankers=(meta_over or {}).get("bankers") or _einfo.get("bankers") or ["Banker details to be confirmed"]
+    _aud=_einfo.get("auditor") or "Kayode Okunola & Co"
     entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
-            "activity":"[Principal activity to be confirmed]","activity_short":"[Principal activity]",
-            "activity_para":"The principal activity of the Company is to be confirmed by the Directors.",
-            "directors":["Director"],"office":["Lagos, Nigeria"],"bankers":["Banker details to be confirmed"],
-            "auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co","city":"Lagos, Nigeria"}
+            "activity":_act or "[Principal activity to be confirmed]","activity_short":"[Principal activity]",
+            "activity_para":(f"The principal activity of the Company is {_act[0].lower()+_act[1:]}." if _act else "The principal activity of the Company is to be confirmed by the Directors."),
+            "directors":_dirs,"office":_office,"bankers":_bankers,
+            "auditor":_aud,"auditor_name":_aud,"city":(_einfo.get("city") or "Lagos, Nigeria")}
     tie=[("SOFP balances",abs(ta-tel)<1),("Gross profit",abs(rev-cos-gross)<1),
          ("Profit = equity movement",abs(pat-pat)<1),("SOCE RE = SOFP RE",abs(re_close-re_close)<1),
          ("Cash flow = SOFP cash",abs(net-(cash-cash_py))<1),
@@ -856,7 +984,9 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     soce_headers=["","Unrestricted","Restricted & endowment","Total funds"]
 
     # ---- notes ----
-    ent_name=(meta_over or {}).get("name") or (cov.get("entity") or "The Organisation")
+    _einfo=read_entity(wb)
+    ent_name=(meta_over or {}).get("name") or _einfo.get("name") or (cov.get("entity") or "The Organisation")
+    ent_rc=(meta_over or {}).get("rc") or _einfo.get("rc")
     fw="the financial reporting framework for not-for-profit organisations in Nigeria, based on the IFRS for SMEs as adapted for not-for-profit entities"
     fws="IFRS for SMEs (as adapted for not-for-profit entities)"
     def N(t,paras=None,table=None,ppe=None):
@@ -866,7 +996,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
         if ppe is not None: d["ppe"]=ppe
         return d
     notes=[]; ref={}
-    notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Organisation”) is a not-for-profit organisation registered in Nigeria as an Incorporated Trustees under Part F of the Companies and Allied Matters Act, 2020 with Registration Number {(meta_over or {}).get('rc','') or '[RC/IT number to be confirmed]'}. The Organisation is domiciled in Nigeria and its activities are directed at its charitable objects and are not carried on for profit."]))
+    notes.append(N("1. General Information",[f"{ent_name.upper()} (the “Organisation”) is a not-for-profit organisation registered in Nigeria as an Incorporated Trustees under Part F of the Companies and Allied Matters Act, 2020 with Registration Number {ent_rc or '[RC/IT number to be confirmed]'}. The Organisation is domiciled in Nigeria and its activities are directed at its charitable objects and are not carried on for profit."]))
     notes.append(N("2. Basis of Preparation",[f"The financial statements have been prepared in accordance with {fw}, and the applicable provisions of the Companies and Allied Matters Act, 2020. They are prepared under the historical-cost convention and presented in Nigerian Naira (N), the functional and presentation currency of the Organisation. As a not-for-profit entity, the Organisation presents a Statement of Financial Activities in place of a statement of profit or loss, and accounts for its resources on a fund-accounting basis."]))
     notes.append(N("3. Fund Accounting",["Unrestricted (general) funds are funds that are available for use at the discretion of the Trustees in furtherance of the general objects of the Organisation.",
         "Restricted funds are funds subject to specific conditions imposed by donors or by the terms of an appeal. Expenditure meeting those conditions is charged to the relevant restricted fund.",
@@ -936,7 +1066,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     _sw=(surplus)
     meta={"mode":"draft","template":"NGO","entity_name":ent_name,"short_name":ent_name.split()[0],
           "name_line2":" ".join(ent_name.split()[1:]) or "",
-          "rc":(meta_over or {}).get("rc","[RC/IT]"),"auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
+          "rc":ent_rc or "[RC/IT]","auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
           "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
           "first_year":False,"signatories":["Trustee","Trustee"],"sig_words":"two",
           "results_para":f"The Organisation recorded total income of N{tot_inc:,.0f} and total expenditure of N{tot_exp:,.0f}, resulting in a net {'deficit' if _sw<0 else 'surplus'} for the year of N{abs(_sw):,.0f}, which has been transferred to the accumulated funds.",
@@ -946,8 +1076,10 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
             "activity":"Not-for-profit / charitable activities","activity_short":"Charitable activities",
             "activity_para":"The principal activity of the Organisation is the pursuit of its charitable and not-for-profit objects as set out in its constitution.",
-            "directors":cov.get("directors") or ["Trustee"],"office":["Nigeria"],"bankers":["Banker details to be confirmed"],
-            "auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co","city":"Nigeria"}
+            "directors":(meta_over or {}).get("directors") or _einfo.get("directors") or cov.get("directors") or ["Trustee"],
+            "office":_office_lines(_einfo.get("office"), _einfo.get("city")) or ["Nigeria"],
+            "bankers":(meta_over or {}).get("bankers") or _einfo.get("bankers") or ["Banker details to be confirmed"],
+            "auditor":_einfo.get("auditor") or "Kayode Okunola & Co","auditor_name":_einfo.get("auditor") or "Kayode Okunola & Co","city":(_einfo.get("city") or "Nigeria")}
 
     tie=[("SOFP balances",abs(ta-tfl)<1),
          ("Surplus = income - expenditure",abs(surplus-(tot_inc-tot_exp))<1),
