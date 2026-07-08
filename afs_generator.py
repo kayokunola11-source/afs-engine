@@ -351,7 +351,7 @@ def build(data,out_path):
     A(Paragraph(f"There were no significant events after the reporting date which could have materially affected the financial position of the {ENT} as at {M['period_end']} or the results presented in these financial statements that have not been adequately disclosed or provided for.",body))
     A(Paragraph("Auditors",h2))
     A(Paragraph(f"In accordance with the applicable provisions of the Companies and Allied Matters Act, 2020, Messrs {E['auditor']} have indicated their willingness to continue in office as Auditors of the {ENT}.",body))
-    A(Spacer(1,14)); A(Paragraph("BY ORDER OF THE "+L.get('board_word','Board').upper(),sig)); A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(PageBreak())
+    A(Spacer(1,14)); A(KeepTogether([Paragraph("BY ORDER OF THE "+L.get('board_word','Board').upper(),sig), Spacer(1,18), signatures(M["signatories"],M["sign_date"],GOV)])); A(PageBreak())
     # 4 responsibilities
     for x in heading(RESP_TITLE,f"In relation to the financial statements for the year ended {M['period_end']}."): A(x)
     A(Paragraph(f"The Companies and Allied Matters Act, 2020 requires the {GOVS} to prepare financial statements for each financial year that give a true and fair view of the financial position of the {ENT} as at the end of the financial year and of its {PERF} and cash flows for the year then ended.",body))
@@ -364,7 +364,7 @@ def build(data,out_path):
     A(Paragraph(f"The {GOVS} are responsible for maintaining adequate accounting records, safeguarding the assets of the {ENT}, and taking reasonable steps for the prevention and detection of fraud and other irregularities. The fulfilment of this responsibility is discharged through the establishment and maintenance of sound management and accounting systems, the maintenance of an organisational structure that provides for the delegation of authority, and the constant review of operational performance against approved plans and budgets.",body))
     A(Paragraph(f"The {GOVS} further confirm that these financial statements have been prepared in accordance with the {M['framework']} and in compliance with the provisions of the Companies and Allied Matters Act, 2020.",body))
     A(Paragraph(f"The {GOVS} have assessed the ability of the {ENT} to continue as a going concern and have no reason to believe that the {ENT} will not remain a going concern in the foreseeable future.",body))
-    A(Spacer(1,18)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(PageBreak())
+    A(KeepTogether([Spacer(1,18), signatures(M["signatories"],M["sign_date"],GOV)])); A(PageBreak())
     # 5 auditor report
     for x in heading("Independent Auditor's Report",f"To the {ADDR} of {E['name'].upper()}"): A(x)
     A(Paragraph("Report on the Audit of the Financial Statements",h2))
@@ -382,10 +382,10 @@ def build(data,out_path):
     A(Paragraph("Our objectives are to obtain reasonable assurance about whether the financial statements as a whole are free from material misstatement, whether due to fraud or error, and to issue an auditor's report that includes our opinion. Reasonable assurance is a high level of assurance, but is not a guarantee that an audit conducted in accordance with ISAs will always detect a material misstatement when it exists. Misstatements can arise from fraud or error and are considered material if, individually or in the aggregate, they could reasonably be expected to influence the economic decisions of users taken on the basis of these financial statements.",body))
     A(Paragraph(f"As part of an audit in accordance with ISAs, we exercise professional judgement and maintain professional scepticism throughout the audit. We also identify and assess the risks of material misstatement, whether due to fraud or error, design and perform audit procedures responsive to those risks, and obtain audit evidence that is sufficient and appropriate to provide a basis for our opinion; obtain an understanding of internal control relevant to the audit in order to design audit procedures that are appropriate in the circumstances; evaluate the appropriateness of accounting policies used and the reasonableness of accounting estimates and related disclosures made by the {GOVS}; conclude on the appropriateness of the {GOVS}' use of the going-concern basis of accounting; and evaluate the overall presentation, structure and content of the financial statements.",body))
     A(Paragraph(f"We communicate with the {GOVS} regarding, among other matters, the planned scope and timing of the audit and significant audit findings, including any significant deficiencies in internal control that we identify during our audit.",body))
-    A(Paragraph("Report on Other Legal and Regulatory Requirements",h2))
-    A(Paragraph(f"In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the {ENT}, so far as appears from our examination of those books; and (c) the {ENT}'s Statement of Financial Position and {T_SOCI} are in agreement with the books of account.",body))
-    A(Spacer(1,16))
-    _sigblk=[]                                              # keep the whole signature block on one page
+    A(Spacer(1,4))
+    _sigblk=[Paragraph("Report on Other Legal and Regulatory Requirements",h2),
+             Paragraph(f"In accordance with the requirements of Schedule 6 of the Companies and Allied Matters Act, 2020, we confirm that: (a) we have obtained all the information and explanations which to the best of our knowledge and belief were necessary for the purposes of our audit; (b) in our opinion, proper books of account have been kept by the {ENT}, so far as appears from our examination of those books; and (c) the {ENT}'s Statement of Financial Position and {T_SOCI} are in agreement with the books of account.",body),
+             Spacer(1,16)]                                  # keep report-on-legal + signature together
     if M["mode"]=="final" and M.get("signature_image"):
         _sig=scaled_image(M["signature_image"], 48*mm, 18*mm); _sig.hAlign="LEFT"; _sigblk += [_sig, Spacer(1,1)]
     _sigblk += [Paragraph(E["auditor_name"],sig), Paragraph("Chartered Accountants",sigdate)]
@@ -407,8 +407,7 @@ def build(data,out_path):
     # 7 SOFP
     for x in heading("Statement of Financial Position",f"As at {M['period_end']}"): A(x)
     A(stmt_table(data["sofp"],fy_first,_cyl,_pyl)); A(Spacer(1,8))
-    A(Paragraph(f"These financial statements were approved by the {L.get('board_word','Board of Directors')} on {M['sign_date']} and signed on its behalf by:",body))
-    A(Spacer(1,16)); A(signatures(M["signatories"],M["sign_date"],GOV)); A(Spacer(1,6))
+    A(KeepTogether([Paragraph(f"These financial statements were approved by the {L.get('board_word','Board of Directors')} on {M['sign_date']} and signed on its behalf by:",body), Spacer(1,16), signatures(M["signatories"],M["sign_date"],GOV)])); A(Spacer(1,6))
     A(Paragraph("The accompanying notes form an integral part of these financial statements.",small_i)); A(PageBreak())
     # 8 SCF
     for x in heading("Statement of Cash Flows",f"For the year ended {M['period_end']} (indirect method)"): A(x)
