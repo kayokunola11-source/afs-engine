@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-08-scale-v36"  # Cover 'Presentation scale' authoritative (N'000 fix) + signature/pagination layout fixes
+ENGINE_VERSION = "2026-07-08-pya-v37"  # + Entity-sheet reader (registered office/directors) + prior-year-adjustment (SOCE restatement rows + note)
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile","cover_scale_authoritative","layout_keeptogether"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile","cover_scale_authoritative","layout_keeptogether","entity_sheet_reader","prior_year_adjustment"]}
 
 @app.post("/generate")
 async def generate(

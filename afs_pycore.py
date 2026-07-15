@@ -118,6 +118,29 @@ def _office_lines(office, city):
             lines.append(c)
     return [l for l in lines if l]
 
+
+def read_pya(wb):
+    """Read a prior-year adjustment (IAS 8 / IFRS for SMEs Section 10) from the Cover sheet.
+    Returns (amount, narrative) where amount = net effect on retained earnings brought forward
+    (restated minus as-previously-reported), narrative = the description. (0.0, None) if absent."""
+    try:
+        cov = wb["Cover"]
+    except Exception:
+        return 0.0, None
+    amt = 0.0; txt = None
+    for r in range(1, 90):
+        lab = str(cov.cell(r, 2).value or "").strip().lower()
+        if not lab.startswith("prior") or "adjust" not in lab:
+            continue
+        val = cov.cell(r, 3).value
+        if isinstance(val, (int, float)):
+            amt = float(val)
+        elif val not in (None, ""):
+            s = str(val).strip()
+            if s and s.lower() not in ("none", "n/a", "nil", "-", "0", "0.0"):
+                txt = s
+    return amt, txt
+
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
 CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
 CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow"}
@@ -528,10 +551,20 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         for _row in scf:
             _kws=_SCF_PYMAP.get(_row.get("label",""))
             if _kws: _row["py"]=_scf_py_val(_pyrows,_kws)
-    # ---------- SOCE ----------
-    soce=[{"label":"Balance at end of prior year","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
-          {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
-          {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
+    # ---------- SOCE (with optional prior-year adjustment / restatement) ----------
+    pya_amt,pya_txt=read_pya(wb)
+    if abs(pya_amt)>=1:
+        # 'as restated' opening = the workbook's own b/f (so tie-outs are unaffected); the
+        # 'as previously reported' figure is backed out by the adjustment amount.
+        soce=[{"label":"Balance at end of prior year, as previously reported","sc":sc_py,"re":re_close_py-pya_amt,"tot":sc_py+re_close_py-pya_amt,"kind":"normal"},
+              {"label":"Prior-year adjustment","sc":0,"re":pya_amt,"tot":pya_amt,"kind":"normal"},
+              {"label":"Balance at end of prior year, as restated","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
+              {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
+              {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
+    else:
+        soce=[{"label":"Balance at end of prior year","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
+              {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
+              {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
 
     # ---------- notes ----------
     if full_ifrs is None:
@@ -601,6 +634,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         "Risk-management objectives include minimising surprises and protecting against unexpected losses; aligning business strategy with the risk appetite set by the Board; sustaining a strong, risk-aware culture; and ensuring the prudent use of capital and resources.",
         "Financial risk — The Company is exposed principally to credit risk (on receivables and bank balances), liquidity risk (meeting obligations as they fall due) and market risk (including interest-rate and foreign-exchange risk). Management monitors these exposures on an ongoing basis and maintains adequate controls to mitigate them."]))
     n=7
+    if abs(pya_amt)>=1:
+        notes.append(N(f"{n}. Prior-Year Adjustment",[
+            (pya_txt or "A prior-year adjustment has been recognised to correct a matter affecting a prior period."),
+            f"In accordance with the {fws}, the adjustment has been accounted for retrospectively. The opening balance of retained earnings has been restated accordingly; the effect on the comparative retained earnings brought forward is set out in the Statement of Changes in Equity."])); n+=1
     def add(title,secs,sign=1):
         nonlocal n; notes.append(N(f"{n}. {title}",table=figtab(secs,sign))); ref=n; n+=1; return ref
     ref_rev=add("Revenue",{"PL-Revenue"},-1)
