@@ -93,10 +93,28 @@ def cover_page(c,doc):
             c.drawImage(ir, LM, PAGE_H-32*mm, width=w, height=h, mask='auto', preserveAspectRatio=True)
         except Exception: pass
     c.setStrokeColor(GOLD); c.setLineWidth(2.4); c.line(LM,PAGE_H-40*mm,PAGE_W-RM,PAGE_H-40*mm)
-    y=PAGE_H-58*mm; c.setFillColor(NAVY); c.setFont("DVB",34); c.drawString(LM,y,st["short_name"].upper())
-    y-=13*mm; c.setFont("DVB",15); c.setFillColor(NAVY2); c.drawString(LM,y,st["name_line2"].upper())
-    y-=7*mm; c.setFont("DV",9.5); c.setFillColor(GREY); c.drawString(LM,y,st["rc"])
-    y-=34*mm; c.setFillColor(NAVY); c.setFont("DVB",22); c.drawString(LM,y,"AUDITED")
+    # Full entity name as the cover title, word-wrapped to fit (never just the first word).
+    _name=(st.get("entity_name") or (st.get("short_name","")+" "+st.get("name_line2",""))).upper().strip()
+    _maxw=PAGE_W-LM-RM
+    def _wrap(txt,sz):
+        out=[]; cur=""
+        for w in txt.split():
+            t=(cur+" "+w).strip()
+            if c.stringWidth(t,"DVB",sz)<=_maxw: cur=t
+            else:
+                if cur: out.append(cur)
+                cur=w
+        if cur: out.append(cur)
+        return out
+    _sz=32; _lines=_wrap(_name,_sz)
+    while len(_lines)>2 and _sz>18:
+        _sz-=2; _lines=_wrap(_name,_sz)
+    c.setFillColor(NAVY); c.setFont("DVB",_sz)
+    y=PAGE_H-56*mm
+    for _ln in _lines:
+        c.drawString(LM,y,_ln); y-=(_sz*0.42)*mm
+    y-=3*mm; c.setFont("DV",9.5); c.setFillColor(GREY); c.drawString(LM,y,st["rc"])
+    y-=30*mm; c.setFillColor(NAVY); c.setFont("DVB",22); c.drawString(LM,y,"AUDITED")
     y-=11*mm; c.drawString(LM,y,"FINANCIAL STATEMENTS")
     y-=9*mm; c.setFont("DV",11); c.setFillColor(GREY); c.drawString(LM,y,f"For the year ended {st['period_end']}")
     yb=52*mm; c.setStrokeColor(GOLD); c.setLineWidth(1.6); c.line(LM,yb,PAGE_W-RM,yb)

@@ -132,9 +132,12 @@ def read_pya(wb):
         lab = str(cov.cell(r, 2).value or "").strip().lower()
         if not lab.startswith("prior") or "adjust" not in lab:
             continue
+        if "contra" in lab or "code" in lab or "account" in lab:
+            continue                                   # the contra-account-code row is for the auto-journal, not the amount
         val = cov.cell(r, 3).value
         if isinstance(val, (int, float)):
-            amt = float(val)
+            if any(k in lab for k in ("effect", "retained", "amount", "b/f", "brought")):
+                amt = float(val)
         elif val not in (None, ""):
             s = str(val).strip()
             if s and s.lower() not in ("none", "n/a", "nil", "-", "0", "0.0"):
@@ -554,11 +557,13 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     # ---------- SOCE (with optional prior-year adjustment / restatement) ----------
     pya_amt,pya_txt=read_pya(wb)
     if abs(pya_amt)>=1:
-        # 'as restated' opening = the workbook's own b/f (so tie-outs are unaffected); the
-        # 'as previously reported' figure is backed out by the adjustment amount.
-        soce=[{"label":"Balance at end of prior year, as previously reported","sc":sc_py,"re":re_close_py-pya_amt,"tot":sc_py+re_close_py-pya_amt,"kind":"normal"},
+        # The workbook auto-journal posts the adjustment to retained earnings, so current-year
+        # retained earnings (re_close) already carries it; the prior-year column is 'as previously
+        # reported' and the restated opening = as-reported + adjustment.
+        _re_restated=re_close_py+pya_amt
+        soce=[{"label":"Balance at end of prior year, as previously reported","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"normal"},
               {"label":"Prior-year adjustment","sc":0,"re":pya_amt,"tot":pya_amt,"kind":"normal"},
-              {"label":"Balance at end of prior year, as restated","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
+              {"label":"Balance at end of prior year, as restated","sc":sc_py,"re":_re_restated,"tot":sc_py+_re_restated,"kind":"total"},
               {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
               {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
     else:
@@ -674,10 +679,12 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     ref_rec=add("Trade and Other Receivables",{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     ref_cash=add("Cash and Cash Equivalents",{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
     ref_sc=add("Share Capital",{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1)
-    ref_re=n; notes.append(N(f"{n}. Retained Earnings",table=[
-        ["Retained earnings — opening balance",re_open,re_acct_py],
-        ["Profit/(loss) for the year",pat,pat_py],
-        ["Retained earnings — closing balance",re_close,re_close_py,"total"]])); n+=1
+    _re_rows=[["Retained earnings — opening balance",re_open,re_acct_py]]
+    if abs(pya_amt)>=1:
+        _re_rows.append(["Prior-year adjustment",pya_amt,0])
+    _re_rows+=[["Profit/(loss) for the year",pat,pat_py],
+               ["Retained earnings — closing balance",re_close,re_close_py,"total"]]
+    ref_re=n; notes.append(N(f"{n}. Retained Earnings",table=_re_rows)); n+=1
     ref_pay=add("Trade and Other Payables",{"CL-Trade-Pay","CL-Accruals","CL-Statutory"},-1)
     ref_dca=add("Directors' Current Account",{"CL-DCA"},-1)
     # Related party transactions & balances (Section 33) — balance from TB, facts from app
