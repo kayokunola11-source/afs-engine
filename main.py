@@ -12,7 +12,7 @@ import afs_extract, afs_generator, calc_core
 
 API_KEY = os.environ.get("ENGINE_API_KEY", "")
 app = FastAPI(title="AFS Engine")
-ENGINE_VERSION = "2026-07-08-pya2-v38"  # PYA auto-posts balanced journal (Dr/Cr RE + contra); cover page shows FULL entity name (word-wrapped), not just first word
+ENGINE_VERSION = "2026-07-08-pya2-v39-return-workbook"  # PYA auto-posts balanced journal (Dr/Cr RE + contra); cover page shows FULL entity name (word-wrapped), not just first word
 
 def recalc(xlsx_in, work):
     """Recalculate the formula-linked workbook with LibreOffice (Excel caches no values).
@@ -70,7 +70,7 @@ def health():
 def version():
     return {"version": ENGINE_VERSION,
             "calc_core_loaded": hasattr(calc_core, "selfcheck"),
-            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile","cover_scale_authoritative","layout_keeptogether","entity_sheet_reader","prior_year_adjustment","pya_auto_journal","cover_full_name"]}
+            "features": ["json_response","tie_outs_5","signature_crop","stamp_trim","frc_no_field","multi_dialect","entity_overrides","asset_mgmt_notes","detailed_sme_notes","ppe_schedule","full_ifrs","calc_core_selfcheck","calc_core_pdf_sidebyside","disclosure_check","ifrs_sme_notes","naira_thousands","template_guard","full_ifrs_profile","asset_management_profile","manufacturing_profile","ngo_profile","lending_profile","cover_scale_authoritative","layout_keeptogether","entity_sheet_reader","prior_year_adjustment","pya_auto_journal","cover_full_name","return_workbook"]}
 
 @app.post("/generate")
 async def generate(
@@ -113,6 +113,7 @@ async def generate(
     template_framework: str = Form(""),
     template_variant: str = Form(""),
     template_version: str = Form(""),
+    return_workbook: str = Form(""),
     x_api_key: str = Header(default=""),
 ):
     if API_KEY and x_api_key != API_KEY:
@@ -282,6 +283,12 @@ async def generate(
             "calc_core_pdf_base64": _calc_core_pdf,
             "template_check": _tguard,
         }
+        if str(return_workbook).strip().lower() in ("1", "true", "yes"):
+            try:
+                with open(recalced, "rb") as _wf:
+                    body["workbook_base64"] = base64.b64encode(_wf.read()).decode("ascii")
+            except Exception as _wb_e:
+                body["workbook_error"] = str(_wb_e)
         return JSONResponse(body)
     finally:
         shutil.rmtree(work, ignore_errors=True)
