@@ -296,6 +296,58 @@ def read_capadq(wb):
             rows.append(row)
     return rows or None
 
+def _tax_schedules(wb):
+    """Read the CIT tax computation and capital-allowances schedules (supplementary)."""
+    def _num(v):
+        return float(v) if isinstance(v,(int,float)) else None
+    out={}
+    _JUNK=("enter ","pull ","prior-year","column","must =","tip","target","i13","h column",
+           "per asset","(auto","see ","investigate","reconcil","from tb","cap at","capped at if")
+    def _is_junk(lab):
+        ll=lab.lower()
+        return (len(lab)>90 or any(j in ll for j in _JUNK)) and not ll.startswith(("total","adjusted",
+                "assessable","taxable","companies income","tertiary","development","police",
+                "minimum tax","less:","add:","franked","balancing","profit/(loss)","deferred"))
+    names={sn.lower():sn for sn in wb.sheetnames}
+    cit=names.get("cit")
+    if cit:
+        ws=wb[cit]; rows=[]
+        for r in range(6,46):
+            lab=ws.cell(r,2).value
+            if lab is None or not str(lab).strip(): continue
+            raw=str(lab); lab=raw.strip(); low=lab.lower()
+            if low.startswith("(capped") or _is_junk(lab): continue
+            cyn=_num(ws.cell(r,3).value); pyn=_num(ws.cell(r,4).value)
+            indent=raw[:1]==" "
+            if cyn is None and pyn is None:
+                rows.append({"label":lab,"cy":0,"py":0,"kind":"section"}); continue
+            kind="normal"
+            if low.startswith(("adjusted profit","assessable profit","taxable income")): kind="subtotal"
+            if low.startswith("total tax payable"): kind="total"
+            rows.append({"label":lab,"cy":cyn or 0,"py":pyn or 0,"kind":kind,"indent":indent})
+            if kind=="total": break
+        if any(r["kind"]!="section" and (abs(r["cy"])>0 or abs(r["py"])>0) for r in rows):
+            out["cit"]={"title":str(ws.cell(1,1).value or "Companies Income Tax Computation").strip(),
+                        "subtitle":(str(ws.cell(3,1).value).strip() if ws.cell(3,1).value else None),"rows":rows}
+    ca=names.get("capallow") or names.get("cap all") or names.get("capital allowance")
+    if ca:
+        ws=wb[ca]; rows=[]
+        for r in range(6,26):
+            cls=ws.cell(r,2).value
+            if cls is None or not str(cls).strip(): continue
+            label=str(cls).strip()
+            if _is_junk(label): continue
+            vals=[ws.cell(r,c).value for c in range(3,9)]
+            row=[label]+[(v if isinstance(v,str) else (_num(v) or 0)) for v in vals]
+            if label.upper()=="TOTAL": row.append("total")
+            rows.append(row)
+        if rows:
+            out["capallow"]={"title":str(ws.cell(1,1).value or "Capital Allowance Computation").strip(),
+                             "headers":["Asset class","Rate","TWDV b/f","Additions","Initial","Annual","Total (CY)"],
+                             "rows":rows}
+    return out or None
+
+
 def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=None):
     disclosures=disclosures or {}
     wb=openpyxl.load_workbook(path, data_only=True)
@@ -931,7 +983,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                 _mf=_g.get("money_from",1)
                 _g["rows"]=[[(c/scale if (i>=_mf and isinstance(c,(int,float))) else c) for i,c in enumerate(row)] for row in _g["rows"]]
     return {"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,
-            "fin_summary":None,"tax_schedules":None,"flags":res["errors"],
+            "fin_summary":None,"tax_schedules":_tax_schedules(wb),"flags":res["errors"],
             "tie_outs":[{"name":x,"pass":bool(p)} for x,p in tie]}
 
 
