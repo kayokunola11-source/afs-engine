@@ -217,18 +217,8 @@ async def generate(
               f"logo={bool(logo_path)} footer={bool(b_footer)} frc={(firm_frc or frc_no)!r}", flush=True)
 
         out = os.path.join(work, "afs.pdf")
-        afs_generator.build(data, out)                       # pass 1
-        try:
-            from pypdf import PdfReader
-            data["meta"]["total_pages"] = len(PdfReader(out).pages)
-            afs_generator.build(data, out)                   # pass 2 (page count)
-        except Exception:
-            pass
-        pdf = open(out, "rb").read()
-
-        # --- side-by-side (additive): also render the pure-Python calc-core PDF for
-        #     comparison. Primary PDF above is unchanged. Wrapped so it can NEVER block. ---
-        _calc_core_pdf = None
+        pdf = None; _calc_core_pdf = None
+        # --- PRIMARY renderer: pure-Python calc_core engine (ONE document per request) ---
         try:
             import afs_pycore
             _disc={}
@@ -240,11 +230,9 @@ async def generate(
             if shares_in_issue:
                 try: _disc["shares_in_issue"]=float(str(shares_in_issue).replace(",",""))
                 except Exception: pass
-            # Workbook Cover's "Presentation scale" is authoritative; the form only *forces* thousands.
-            # (Prevents a full-Naira form default from silently overriding a "Thousands (N'000)" Cover.)
             _scale=1000 if str(presentation_scale).strip()=="1000" else None
             _fifrs=(template_framework.strip().lower()=="full_ifrs") if template_framework else None
-            _cc_meta = dict(eo)   # FIX: pass FULL entity overrides (period_end, directors, activity, sign_date, bankers, city), not just name/rc
+            _cc_meta = dict(eo)   # full entity overrides
             _cc_meta.setdefault("name", data["meta"].get("entity_name"))
             _cc_meta.setdefault("rc",   data["meta"].get("rc"))
             if year_end:
@@ -254,11 +242,27 @@ async def generate(
                 disclosures=_disc, scale=_scale, full_ifrs=_fifrs)
             for _k in ("primary_color","accent_color","auditor","auditor_name","firm_address","firm_city"):
                 if data["meta"].get(_k): _cc_data["meta"][_k] = data["meta"][_k]
-            _cc_out = os.path.join(work, "afs_calccore.pdf")
-            afs_generator.build(_cc_data, _cc_out)
-            _calc_core_pdf = base64.b64encode(open(_cc_out, "rb").read()).decode("ascii")
+            afs_generator.build(_cc_data, out)                       # pass 1
+            try:
+                from pypdf import PdfReader
+                _cc_data["meta"]["total_pages"] = len(PdfReader(out).pages)
+                afs_generator.build(_cc_data, out)                   # pass 2 (page count)
+            except Exception:
+                pass
+            pdf = open(out, "rb").read()
+            _calc_core_pdf = base64.b64encode(pdf).decode("ascii")
         except Exception as _cc_e:
             if isinstance(_calc_core, dict): _calc_core["pdf_error"] = str(_cc_e)
+        # --- FALLBACK renderer: original extractor, ONLY if calc_core failed ---
+        if pdf is None:
+            afs_generator.build(data, out)                           # pass 1
+            try:
+                from pypdf import PdfReader
+                data["meta"]["total_pages"] = len(PdfReader(out).pages)
+                afs_generator.build(data, out)                       # pass 2 (page count)
+            except Exception:
+                pass
+            pdf = open(out, "rb").read()
 
         def gv(rows, lbl, k="cy"):
             for r in rows:
