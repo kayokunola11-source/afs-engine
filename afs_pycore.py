@@ -656,18 +656,21 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
             if _kws: _row["py"]=_scf_py_val(_pyrows,_kws)
     # ---------- SOCE (with optional prior-year adjustment / restatement) ----------
     pya_amt,pya_txt=read_pya(wb)
+    _re_py_open=re_close_py-pat_py   # FIX: start-of-prior-year RE derived from real b/f close and PY profit (workbook SOCE opening ignored)
+    _soce_pystart=[{"label":"Balance at start of prior year","sc":sc_py,"re":_re_py_open,"tot":sc_py+_re_py_open,"kind":"normal"},
+                   {"label":"Profit/(loss) for the prior year","sc":0,"re":pat_py,"tot":pat_py,"kind":"normal"}]
     if abs(pya_amt)>=1:
         # The workbook auto-journal posts the adjustment to retained earnings, so current-year
         # retained earnings (re_close) already carries it; the prior-year column is 'as previously
         # reported' and the restated opening = as-reported + adjustment.
         _re_restated=re_close_py+pya_amt
-        soce=[{"label":"Balance at end of prior year, as previously reported","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"normal"},
+        soce=_soce_pystart+[{"label":"Balance at end of prior year, as previously reported","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"normal"},
               {"label":"Prior-year adjustment","sc":0,"re":pya_amt,"tot":pya_amt,"kind":"normal"},
               {"label":"Balance at end of prior year, as restated","sc":sc_py,"re":_re_restated,"tot":sc_py+_re_restated,"kind":"total"},
               {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
               {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
     else:
-        soce=[{"label":"Balance at end of prior year","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
+        soce=_soce_pystart+[{"label":"Balance at end of prior year","sc":sc_py,"re":re_close_py,"tot":sc_py+re_close_py,"kind":"total"},
               {"label":"Profit/(loss) for the year","sc":0,"re":pat,"tot":pat,"kind":"normal"},
               {"label":"Balance at end of current year","sc":sc,"re":re_close,"tot":sc+re_close,"kind":"total"}]
 
