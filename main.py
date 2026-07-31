@@ -244,9 +244,13 @@ async def generate(
             # (Prevents a full-Naira form default from silently overriding a "Thousands (N'000)" Cover.)
             _scale=1000 if str(presentation_scale).strip()=="1000" else None
             _fifrs=(template_framework.strip().lower()=="full_ifrs") if template_framework else None
-            _cc_data = afs_pycore.build_data(recalced, meta_over={
-                "name": client_name or data["meta"].get("entity_name"),
-                "rc":   rc_number or data["meta"].get("rc")},
+            _cc_meta = dict(eo)   # FIX: pass FULL entity overrides (period_end, directors, activity, sign_date, bankers, city), not just name/rc
+            _cc_meta.setdefault("name", data["meta"].get("entity_name"))
+            _cc_meta.setdefault("rc",   data["meta"].get("rc"))
+            if year_end:
+                try: _cc_meta["fy"] = year_end[:4]
+                except Exception: pass
+            _cc_data = afs_pycore.build_data(recalced, meta_over=_cc_meta,
                 disclosures=_disc, scale=_scale, full_ifrs=_fifrs)
             for _k in ("primary_color","accent_color","auditor","auditor_name","firm_address","firm_city"):
                 if data["meta"].get(_k): _cc_data["meta"][_k] = data["meta"][_k]
