@@ -802,6 +802,47 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         if kmp is not None: rp_tab.append(["Key management personnel compensation", float(kmp), float(kmp_py)])
         notes.append(N(f"{n}. Related Party Transactions and Balances", rp_par, table=rp_tab)); n+=1
     # Events after the reporting date (Section 32) — app text or standard nil
+    # ---------- CAMA statutory disclosures (amounts from TB where present; inputs optional) ----------
+    def _amt(book, secs, *subs):
+        return sum(book.get(c,0.0) for c,s in sec.items()
+                   if s in secs and any(x in str(name.get(c,"")).lower() for x in subs))
+    _D=disclosures; _TBC="[To be confirmed by the Directors.]"
+    def _flt(v):
+        try: return float(str(v).replace(",",""))
+        except Exception: return None
+    # Employees (CAMA)
+    _staff=_amt(cy,PL,"salar","wage","staff","pension","gratuit"); _staff_py=_amt(py,PL,"salar","wage","staff","pension","gratuit")
+    _emp_para=[]; _ne=_flt(_D.get("num_employees")); _ne_py=_flt(_D.get("num_employees_py"))
+    if _ne is not None:
+        _emp_para.append("The average number of persons employed by the Company during the year was {}{}.".format(int(_ne), (" (prior year: {})".format(int(_ne_py))) if _ne_py is not None else ""))
+    else:
+        _emp_para.append("The average number of persons employed during the year is "+_TBC)
+    if _D.get("employee_bands"): _emp_para.append("Number of employees by emolument band: "+str(_D.get("employee_bands")))
+    _emp_tab=[["Staff costs (salaries, wages and pension)",_staff,_staff_py,"total"]] if (abs(_staff)>=1 or abs(_staff_py)>=1) else None
+    notes.append(N("{}. Employees".format(n),_emp_para,table=_emp_tab)); n+=1
+    # Directors' Remuneration / Key Management Personnel (CAMA + IFRS for SMEs S33)
+    _dir=_amt(cy,PL,"director"); _dir_py=_amt(py,PL,"director")
+    _di=_flt(_D.get("directors_emoluments"))
+    if _di is not None: _dir=_di
+    _dir_para=["Directors are regarded as the key management personnel of the Company."]
+    _hp=_flt(_D.get("highest_paid_director"))
+    if _hp is not None: _dir_para.append("The emoluments of the highest-paid Director amounted to N{:,.0f}.".format(_hp))
+    _dir_tab=[["Directors' emoluments",_dir,_dir_py,"total"]] if (abs(_dir)>=1 or abs(_dir_py)>=1) else None
+    if _dir_tab is None and _hp is None: _dir_para.append("Directors' remuneration for the year is "+_TBC)
+    notes.append(N("{}. Directors' Remuneration and Key Management Personnel".format(n),_dir_para,table=_dir_tab)); n+=1
+    # Auditor's Remuneration (CAMA)
+    _aud=_amt(cy,PL,"audit"); _aud_py=_amt(py,PL,"audit")
+    if abs(_aud)<1: _aud=-_amt(cy,{"CL-Accruals","CL-Statutory","CL-Trade-Pay"},"audit")
+    if abs(_aud_py)<1: _aud_py=-_amt(py,{"CL-Accruals","CL-Statutory","CL-Trade-Pay"},"audit")
+    _ai=_flt(_D.get("audit_fee"))
+    if _ai is not None: _aud=_ai
+    if abs(_aud)>=1 or abs(_aud_py)>=1:
+        _naf=_flt(_D.get("non_audit_fee")); _aud_tab=[["Audit fee",_aud,_aud_py]]
+        if _naf is not None: _aud_tab.append(["Non-audit services",_naf,0])
+        _aud_tab.append(["Total auditor's remuneration",_aud+(_naf or 0),_aud_py,"total"])
+        notes.append(N("{}. Auditor's Remuneration".format(n),table=_aud_tab)); n+=1
+    else:
+        notes.append(N("{}. Auditor's Remuneration".format(n),["Auditor's remuneration for the year is "+_TBC])); n+=1
     ev=disclosures.get("events_after")
     notes.append(N(f"{n}. Events After the Reporting Date",[ev or "There were no material events after the reporting date that would require adjustment to, or disclosure in, these financial statements."])); n+=1
     if full_ifrs:

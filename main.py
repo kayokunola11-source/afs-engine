@@ -110,6 +110,13 @@ async def generate(
     events_after: str = Form(""),
     presentation_scale: str = Form(""),
     shares_in_issue: str = Form(""),
+    num_employees: str = Form(""),
+    num_employees_py: str = Form(""),
+    directors_emoluments: str = Form(""),
+    highest_paid_director: str = Form(""),
+    audit_fee: str = Form(""),
+    non_audit_fee: str = Form(""),
+    employee_bands: str = Form(""),
     template_framework: str = Form(""),
     template_variant: str = Form(""),
     template_version: str = Form(""),
@@ -230,6 +237,8 @@ async def generate(
             if shares_in_issue:
                 try: _disc["shares_in_issue"]=float(str(shares_in_issue).replace(",",""))
                 except Exception: pass
+            for _k,_v in (("num_employees",num_employees),("num_employees_py",num_employees_py),("directors_emoluments",directors_emoluments),("highest_paid_director",highest_paid_director),("audit_fee",audit_fee),("non_audit_fee",non_audit_fee),("employee_bands",employee_bands)):
+                if _v not in (None,""): _disc[_k]=_v
             _scale=1000 if str(presentation_scale).strip()=="1000" else None
             _fifrs=(template_framework.strip().lower()=="full_ifrs") if template_framework else None
             _cc_meta = dict(eo)   # full entity overrides
