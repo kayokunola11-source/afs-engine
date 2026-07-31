@@ -144,10 +144,10 @@ def read_pya(wb):
                 txt = s
     return amt, txt
 
-NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc"}
-CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
-CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow"}
-NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow"}
+NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc","NCA-ROU","NCA-InvProperty","NCA-Associate","NCA-Goodwill","NCA-LTReceivable"}
+CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-WHT-Recoverable","CA-VAT-Input","CA-RelatedParty-Rec","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
+CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow","CL-Provisions","CL-ContractLiab","CL-CurrentPortionLTD","CL-Lease","CL-Dividends"}
+NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow","NCL-Lease","NCL-Provisions","NCL-EmployeeBenefit","NCL-Grant"}
 PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
 
 def _py(wb):
@@ -308,6 +308,12 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     res={"tb":tb,"cover":cov,"tax":calc_core.compute_tax(tb,_pbt,cov,_cap),"errors":errs,"_cap_cy":_cap}
     sec={c:a["section"] for c,a in tb.items()}; name={c:a["name"] for c,a in tb.items()}
     cy={c:a["cy_signed"] for c,a in tb.items()}; py=_py(wb)
+    # FIX: in COMPANY mode (share capital present) a stray "Capital account (proprietor)"
+    # is not valid equity -> present it under the Director's Current Account. Business names
+    # (no share capital) keep proprietor capital in equity.
+    _is_company=any(s=="EQ-ShareCap" and (abs(cy.get(c,0.0))>=1 or abs(py.get(c,0.0))>=1) for c,s in sec.items())
+    if _is_company:
+        sec={c:("CL-DCA" if s=="EQ-Capital" else s) for c,s in sec.items()}
     def S(book,secs,sign=1): return sign*sum(book.get(c,0.0) for c,s in sec.items() if s in secs)
     def prof(book): return -sum(book.get(c,0.0) for c,s in sec.items() if s in PL)
     def accts(book,secs,sign=1):
@@ -320,7 +326,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
 
     pat=prof(cy); pat_py=prof(py)
     re_acct=S(cy,{"EQ-RetEarn","EQ-Drawings"},-1); re_close=re_acct+pat
-    re_acct_py=S(py,{"EQ-RetEarn","EQ-Drawings"},-1); re_close_py=re_acct_py+pat_py
+    re_acct_py=S(py,{"EQ-RetEarn","EQ-Drawings"},-1); re_close_py=re_acct_py  # FIX: PY close = b/f
     re_open=re_close_py                       # opening RE = prior-year CLOSING (the fix)
 
     # ---- tax (CY + PY) via same engine ----
@@ -471,27 +477,69 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     inv=S(cy,{"CA-Inventory"}); inv_py=S(py,{"CA-Inventory"})
     rec=S(cy,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}); rec_py=S(py,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     cash=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); cash_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
-    sc=S(cy,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1); sc_py=S(py,{"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes"},-1)
+    _EQSET={"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes","EQ-RevalSurplus","EQ-FXReserve"}
+    sc=S(cy,_EQSET,-1); sc_py=S(py,_EQSET,-1)
     cl=S(cy,CL,-1); cl_py=S(py,CL,-1); ncl=S(cy,NCL,-1); ncl_py=S(py,NCL,-1)
     tel=sc+re_close+ncl+cl; tel_py=sc_py+re_close_py+ncl_py+cl_py
-    sofp=[{"label":"ASSETS","kind":"section"},{"label":"Non-current assets","kind":"section"},
-          money(ppe_cy,ppe_py,"Property, plant & equipment","13",indent=True),
+    def _al(rows,secs,label,note="",sign=1):
+        cyv=S(cy,secs,sign); pyv=S(py,secs,sign)
+        if abs(cyv)>=1 or abs(pyv)>=1: rows.append(money(cyv,pyv,label,note,indent=True))
+    _nc=[]
+    _al(_nc,{"NCA-PPE-Cost","NCA-PPE-Dep"},"Property, plant & equipment","13")
+    _al(_nc,{"NCA-Intangible-Cost","NCA-Intangible-Amort"},"Intangible assets")
+    _al(_nc,{"NCA-Goodwill"},"Goodwill")
+    _al(_nc,{"NCA-InvProperty"},"Investment property")
+    _al(_nc,{"NCA-Investments"},"Investments")
+    _al(_nc,{"NCA-Associate"},"Investment in associate")
+    _al(_nc,{"NCA-ROU"},"Right-of-use assets")
+    _al(_nc,{"NCA-LTReceivable"},"Long-term receivables")
+    _al(_nc,{"NCA-PreInc"},"Pre-incorporation expenses")
+    _al(_nc,{"NCA-DefTax"},"Deferred tax asset")
+    _cr=[]
+    _al(_cr,{"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG"},"Inventory")
+    _al(_cr,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-RelatedParty-Rec"},"Trade & other receivables","14")
+    _al(_cr,{"CA-WHT-Recoverable"},"WHT recoverable")
+    _al(_cr,{"CA-VAT-Input"},"Recoverable VAT")
+    _al(_cr,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"},"Cash & cash equivalents","15")
+    _eq=[]
+    _al(_eq,{"EQ-ShareCap"},"Share capital","16",-1)
+    _al(_eq,{"EQ-SharePrem"},"Share premium","",-1)
+    _al(_eq,{"EQ-Reserve","EQ-Reserves","EQ-StatRes"},"Reserves","",-1)
+    _al(_eq,{"EQ-RevalSurplus"},"Revaluation surplus","",-1)
+    _al(_eq,{"EQ-FXReserve"},"Foreign-currency translation reserve","",-1)
+    _al(_eq,{"EQ-Capital"},"Capital account","",-1)
+    _eq.append(money(re_close,re_close_py,"Retained earnings","17",indent=True))
+    _ncl=[]
+    _al(_ncl,{"NCL-Loans","NCL-Borrow"},"Long-term borrowings","",-1)
+    _al(_ncl,{"NCL-Lease"},"Lease liabilities","",-1)
+    _al(_ncl,{"NCL-Provisions"},"Provisions","",-1)
+    _al(_ncl,{"NCL-EmployeeBenefit"},"Employee benefit obligation","",-1)
+    _al(_ncl,{"NCL-Grant"},"Deferred government grant","",-1)
+    _al(_ncl,{"NCL-Other"},"Other long-term liabilities","",-1)
+    _al(_ncl,{"NCL-DefTax"},"Deferred tax liability","",-1)
+    _cl=[]
+    _al(_cl,{"CL-Trade-Pay"},"Trade payables","",-1)
+    _al(_cl,{"CL-Accruals"},"Accruals","19",-1)
+    _al(_cl,{"CL-Provisions"},"Provisions","",-1)
+    _al(_cl,{"CL-ContractLiab","CL-DefIncome"},"Contract liabilities / deferred income","",-1)
+    _al(_cl,{"CL-Statutory"},"Statutory deductions","",-1)
+    _al(_cl,{"CL-Tax"},"Current tax payable","12",-1)
+    _al(_cl,{"CL-CurrentPortionLTD"},"Current portion of borrowings","",-1)
+    _al(_cl,{"CL-Loans","CL-Overdraft"},"Short-term borrowings / overdraft","",-1)
+    _al(_cl,{"CL-Lease"},"Lease liabilities","",-1)
+    _al(_cl,{"CL-DCA"},"Director's current account","20",-1)
+    _al(_cl,{"CL-Dividends"},"Dividends payable","",-1)
+    _al(_cl,{"CL-Other-Pay"},"Other payables","",-1)
+    sofp=[{"label":"ASSETS","kind":"section"},{"label":"Non-current assets","kind":"section"}]+_nc+[
           money(nca,nca_py,"Total non-current assets",kind="subtotal"),
-          {"label":"Current assets","kind":"section"},
-          money(inv,inv_py,"Inventory","",indent=True),
-          money(rec,rec_py,"Trade receivables","14",indent=True),
-          money(cash,cash_py,"Cash & cash equivalents","15",indent=True),
+          {"label":"Current assets","kind":"section"}]+_cr+[
           money(ca,ca_py,"Total current assets",kind="subtotal"),
           money(ta,ta_py,"TOTAL ASSETS",kind="grandtotal"),
-          {"label":"EQUITY AND LIABILITIES","kind":"section"},{"label":"Equity","kind":"section"},
-          money(sc,sc_py,"Share capital","16",indent=True),
-          money(re_close,re_close_py,"Retained earnings","17",indent=True),
-          money(sc+re_close,sc_py+re_close_py,"Total equity",kind="subtotal"),
-          {"label":"Current liabilities","kind":"section"},
-          money(S(cy,{"CL-Accruals"},-1),S(py,{"CL-Accruals"},-1),"Accruals","19",indent=True),
-          money(S(cy,{"CL-Statutory"},-1),S(py,{"CL-Statutory"},-1),"Statutory deductions","",indent=True),
-          money(S(cy,{"CL-Tax"},-1),S(py,{"CL-Tax"},-1),"Current tax payable","12",indent=True),
-          money(S(cy,{"CL-DCA"},-1),S(py,{"CL-DCA"},-1),"Director's current account","20",indent=True),
+          {"label":"EQUITY AND LIABILITIES","kind":"section"},{"label":"Equity","kind":"section"}]+_eq+[
+          money(sc+re_close,sc_py+re_close_py,"Total equity",kind="subtotal")]
+    if _ncl:
+        sofp+=[{"label":"Non-current liabilities","kind":"section"}]+_ncl+[money(ncl,ncl_py,"Total non-current liabilities",kind="subtotal")]
+    sofp+=[{"label":"Current liabilities","kind":"section"}]+_cl+[
           money(cl,cl_py,"Total current liabilities",kind="subtotal"),
           money(tel,tel_py,"TOTAL EQUITY AND LIABILITIES",kind="grandtotal")]
     if lend:
@@ -832,7 +880,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     meta={"mode":"draft","template":"SME","entity_name":ent_name,"short_name":ent_name.split()[0],
           "name_line2":" ".join(ent_name.split()[1:]) or "Limited","activity_short":"[Principal activity]",
           "rc":ent_rc or "[RC]","auditor":cov.get("entity") and "Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
-          "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
+          "fy":(meta_over or {}).get("fy","2025"),"period_end":(meta_over or {}).get("period_end","31 December 2025"),"sign_date":(meta_over or {}).get("sign_date","22 May 2026"),"framework":fw,"framework_short":fws,
           "first_year":False,"signatories":_sigs,"sig_words":_sig_words,
           "results_para":f"The Company reported revenue of N{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of N{abs(pat):,.0f}.",
           "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
@@ -894,6 +942,12 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     disclosures=disclosures or {}
     sec={c:a["section"] for c,a in tb.items()}; nm={c:a["name"] for c,a in tb.items()}
     cy={c:a["cy_signed"] for c,a in tb.items()}; py=_py(wb)
+    # FIX: in COMPANY mode (share capital present) a stray "Capital account (proprietor)"
+    # is not valid equity -> present it under the Director's Current Account. Business names
+    # (no share capital) keep proprietor capital in equity.
+    _is_company=any(s=="EQ-ShareCap" and (abs(cy.get(c,0.0))>=1 or abs(py.get(c,0.0))>=1) for c,s in sec.items())
+    if _is_company:
+        sec={c:("CL-DCA" if s=="EQ-Capital" else s) for c,s in sec.items()}
     def S(book,secs,sign=1): return sign*sum(book.get(c,0.0) for c,s in sec.items() if s in secs)
     def accts(book,secs,sign=1):
         out=[]
@@ -1111,7 +1165,7 @@ def _build_ngo(wb, tb, cov, meta_over=None, disclosures=None, scale=None):
     meta={"mode":"draft","template":"NGO","entity_name":ent_name,"short_name":ent_name.split()[0],
           "name_line2":" ".join(ent_name.split()[1:]) or "",
           "rc":ent_rc or "[RC/IT]","auditor":"Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
-          "fy":"2025","period_end":"31 December 2025","sign_date":"22 May 2026","framework":fw,"framework_short":fws,
+          "fy":(meta_over or {}).get("fy","2025"),"period_end":(meta_over or {}).get("period_end","31 December 2025"),"sign_date":(meta_over or {}).get("sign_date","22 May 2026"),"framework":fw,"framework_short":fws,
           "first_year":False,"signatories":["Trustee","Trustee"],"sig_words":"two",
           "results_para":f"The Organisation recorded total income of N{tot_inc:,.0f} and total expenditure of N{tot_exp:,.0f}, resulting in a net {'deficit' if _sw<0 else 'surplus'} for the year of N{abs(_sw):,.0f}, which has been transferred to the accumulated funds.",
           "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
