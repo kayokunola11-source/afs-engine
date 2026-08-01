@@ -144,11 +144,11 @@ def read_pya(wb):
                 txt = s
     return amt, txt
 
-NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc","NCA-ROU","NCA-InvProperty","NCA-Associate","NCA-Goodwill","NCA-LTReceivable"}
-CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-WHT-Recoverable","CA-VAT-Input","CA-RelatedParty-Rec","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
-CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow","CL-Provisions","CL-ContractLiab","CL-CurrentPortionLTD","CL-Lease","CL-Dividends"}
+NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc","NCA-ROU","NCA-InvProperty","NCA-Associate","NCA-Goodwill","NCA-LTReceivable","NCA-Biological","NCA-Other"}
+CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-WHT-Recoverable","CA-VAT-Input","CA-RelatedParty-Rec","CA-ContractAsset","CA-HeldForSale","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
+CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow","CL-Provisions","CL-ContractLiab","CL-CurrentPortionLTD","CL-Lease","CL-Dividends","CL-HeldForSale"}
 NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow","NCL-Lease","NCL-Provisions","NCL-EmployeeBenefit","NCL-Grant"}
-PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
+PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-OtherExp","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
 
 def _py(wb):
     ws=wb["OpenBal"]; d={}
@@ -354,7 +354,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     inp=calc_core.read_inputs(wb); tb,errs=calc_core.build_trial_balance(inp); cov=inp["cover"]
     if any(str(a.get("section","")).startswith("NGO-") for a in tb.values()):
         return _build_ngo(wb, tb, cov, meta_over, disclosures, scale)
-    _plnt={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-FinCost"}
+    _plnt={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-OtherExp","PL-FinCost"}
     _pbt=-sum(a["cy_signed"] for a in tb.values() if a["section"] in _plnt)
     _cap=num(wb["CapAllow"]["H13"].value) if "CapAllow" in wb.sheetnames else 0.0
     res={"tb":tb,"cover":cov,"tax":calc_core.compute_tax(tb,_pbt,cov,_cap),"errors":errs,"_cap_cy":_cap}
@@ -401,16 +401,18 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     oi=S(cy,{"PL-OtherInc","PL-OtherGains"},-1); oi_py=S(py,{"PL-OtherInc","PL-OtherGains"},-1)
     admin=S(cy,{"PL-Admin"}); admin_py=S(py,{"PL-Admin"})
     sell=S(cy,{"PL-Selling"}); sell_py=S(py,{"PL-Selling"})
+    othexp=S(cy,{"PL-OtherExp"}); othexp_py=S(py,{"PL-OtherExp"})
     fin=S(cy,{"PL-FinCost"}); fin_py=S(py,{"PL-FinCost"})
     taxexp=S(cy,{"PL-Tax"}); taxexp_py=S(py,{"PL-Tax"})
     gross=rev-cos; gross_py=rev_py-cos_py
-    op=gross+oi-admin-sell-fin; op_py=gross_py+oi_py-admin_py-sell_py-fin_py
+    op=gross+oi-admin-sell-othexp-fin; op_py=gross_py+oi_py-admin_py-sell_py-othexp_py-fin_py
     soci=[money(rev,rev_py,"Revenue","6",indent=True),
           money(-cos,-cos_py,"Cost of sales","8",indent=True),
           money(gross,gross_py,"GROSS PROFIT",kind="total")]
     if abs(oi)>=1 or abs(oi_py)>=1: soci.append(money(oi,oi_py,"Other income","7",indent=True))
     soci+=[money(-admin,-admin_py,"Administrative expenses","9",indent=True),
            money(-sell,-sell_py,"Selling & distribution expenses","10",indent=True)]
+    if abs(othexp)>=1 or abs(othexp_py)>=1: soci.append(money(-othexp,-othexp_py,"Other operating expenses","",indent=True))
     if abs(fin)>=1 or abs(fin_py)>=1: soci.append(money(-fin,-fin_py,"Finance cost","11",indent=True))
     soci+=[money(op,op_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"),
            money(op,op_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
@@ -467,8 +469,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         cogm=cost_prod+wip_o-wip_c; cogs=cogm+fg_o-fg_c; cos=cogs+other_cos
         cos_py=S(py,{"PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","PL-COS"})
         gross=rev-cos; gross_py=rev_py-cos_py
-        op=gross+oi-admin-sell-fin; op_py=gross_py+oi_py-admin_py-sell_py-fin_py
-        pat=rev+oi-cos-admin-sell-fin-taxexp; pat_py=rev_py+oi_py-cos_py-admin_py-sell_py-fin_py-taxexp_py
+        op=gross+oi-admin-sell-othexp-fin; op_py=gross_py+oi_py-admin_py-sell_py-othexp_py-fin_py
+        pat=rev+oi-cos-admin-sell-othexp-fin-taxexp; pat_py=rev_py+oi_py-cos_py-admin_py-sell_py-othexp_py-fin_py-taxexp_py
         _mfg_sched=[["Opening raw materials",rm_o],["Add: raw materials purchased",purch],["Less: closing raw materials",-rm_c],
                     ["Raw materials consumed",rm_cons,"t"],["Direct labour",labour],["Factory overheads",ovh],
                     ["Cost of production",cost_prod,"t"],["Add: opening work-in-progress",wip_o],["Less: closing work-in-progress",-wip_c],
@@ -481,6 +483,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         if abs(oi)>=1 or abs(oi_py)>=1: soci.append(money(oi,oi_py,"Other income","7",indent=True))
         soci+=[money(-admin,-admin_py,"Administrative expenses","9",indent=True),
                money(-sell,-sell_py,"Selling & distribution expenses","10",indent=True)]
+        if abs(othexp)>=1 or abs(othexp_py)>=1: soci.append(money(-othexp,-othexp_py,"Other operating expenses","",indent=True))
         if abs(fin)>=1 or abs(fin_py)>=1: soci.append(money(-fin,-fin_py,"Finance cost","11",indent=True))
         soci+=[money(op,op_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"),money(op,op_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
                money(-taxexp,-taxexp_py,"Taxation","12",indent=True),money(pat,pat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
@@ -541,18 +544,22 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     _al(_nc,{"NCA-Intangible-Cost","NCA-Intangible-Amort"},"Intangible assets")
     _al(_nc,{"NCA-Goodwill"},"Goodwill")
     _al(_nc,{"NCA-InvProperty"},"Investment property")
+    _al(_nc,{"NCA-Biological"},"Biological assets")
     _al(_nc,{"NCA-Investments"},"Investments")
     _al(_nc,{"NCA-Associate"},"Investment in associate")
     _al(_nc,{"NCA-ROU"},"Right-of-use assets")
     _al(_nc,{"NCA-LTReceivable"},"Long-term receivables")
     _al(_nc,{"NCA-PreInc"},"Pre-incorporation expenses")
+    _al(_nc,{"NCA-Other"},"Other non-current assets")
     _al(_nc,{"NCA-DefTax"},"Deferred tax asset")
     _cr=[]
     _al(_cr,{"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG"},"Inventory")
     _al(_cr,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-RelatedParty-Rec"},"Trade & other receivables","14")
+    _al(_cr,{"CA-ContractAsset"},"Contract assets")
     _al(_cr,{"CA-WHT-Recoverable"},"WHT recoverable")
     _al(_cr,{"CA-VAT-Input"},"Recoverable VAT")
     _al(_cr,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"},"Cash & cash equivalents","15")
+    _al(_cr,{"CA-HeldForSale"},"Assets held for sale")
     _eq=[]
     _al(_eq,{"EQ-ShareCap"},"Share capital","16",-1)
     _al(_eq,{"EQ-SharePrem"},"Share premium","",-1)
@@ -582,6 +589,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     _al(_cl,{"CL-DCA"},"Director's current account","20",-1)
     _al(_cl,{"CL-Dividends"},"Dividends payable","",-1)
     _al(_cl,{"CL-Other-Pay"},"Other payables","",-1)
+    _al(_cl,{"CL-HeldForSale"},"Liabilities held for sale","",-1)
     sofp=[{"label":"ASSETS","kind":"section"},{"label":"Non-current assets","kind":"section"}]+_nc+[
           money(nca,nca_py,"Total non-current assets",kind="subtotal"),
           {"label":"Current assets","kind":"section"}]+_cr+[
