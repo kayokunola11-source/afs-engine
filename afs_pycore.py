@@ -145,8 +145,8 @@ def read_pya(wb):
     return amt, txt
 
 NCA={"NCA-PPE-Cost","NCA-PPE-Dep","NCA-Intangible-Cost","NCA-Intangible-Amort","NCA-Investments","NCA-DefTax","NCA-PreInc","NCA-ROU","NCA-InvProperty","NCA-Associate","NCA-Goodwill","NCA-LTReceivable","NCA-Biological","NCA-Other"}
-CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-WHT-Recoverable","CA-VAT-Input","CA-RelatedParty-Rec","CA-ContractAsset","CA-HeldForSale","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL"}
-CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow","CL-Provisions","CL-ContractLiab","CL-CurrentPortionLTD","CL-Lease","CL-Dividends","CL-HeldForSale"}
+CA={"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-WHT-Recoverable","CA-VAT-Input","CA-RelatedParty-Rec","CA-ContractAsset","CA-HeldForSale","CA-Cash","CA-Bank","CA-Clearing","CA-Suspense","LEND-Loans","LEND-ECL","CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}
+CL={"CL-Trade-Pay","CL-Accruals","CL-Statutory","CL-Tax","CL-DCA","CL-Overdraft","CL-Loans","CL-Other-Pay","CL-DefIncome","CL-Borrow","CL-Provisions","CL-ContractLiab","CL-CurrentPortionLTD","CL-Lease","CL-Dividends","CL-HeldForSale","CL-ClientFunds"}
 NCL={"NCL-Loans","NCL-Other","NCL-DefTax","NCL-Borrow","NCL-Lease","NCL-Provisions","NCL-EmployeeBenefit","NCL-Grant"}
 PL={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-OtherExp","PL-FinCost","PL-Tax","PL-Prod-Materials","PL-Prod-Labour","PL-Prod-Overhead","INC-MgmtFee","INC-PerfFee","INC-Other","EXP-Direct","EXP-Staff","EXP-Occupancy","EXP-Regulatory","EXP-Admin","EXP-Depr","EXP-Finance"}
 
@@ -498,16 +498,18 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         impair=S(cy,{"LEND-Impair"}); impair_py=S(py,{"LEND-Impair"})
         feeinc=S(cy,{"LEND-FeeInc"},-1); feeinc_py=S(py,{"LEND-FeeInc"},-1)
         lothinc=S(cy,{"LEND-OthInc"},-1); lothinc_py=S(py,{"LEND-OthInc"},-1)
+        divinc=S(cy,{"LEND-DivInc"},-1); divinc_py=S(py,{"LEND-DivInc"},-1)   # dividend/investment income (asset-manager spread)
         lopex=S(cy,{"PL-Admin","PL-Selling"}); lopex_py=S(py,{"PL-Admin","PL-Selling"})
         nii=iinc-iexp; nii_py=iinc_py-iexp_py
         niai=nii-impair; niai_py=nii_py-impair_py
-        lpbt=niai+feeinc+lothinc-lopex; lpbt_py=niai_py+feeinc_py+lothinc_py-lopex_py
+        ninv=niai+divinc+feeinc+lothinc; ninv_py=niai_py+divinc_py+feeinc_py+lothinc_py   # NET INVESTMENT INCOME
+        lpbt=ninv-lopex; lpbt_py=ninv_py-lopex_py
         ltax=S(cy,{"PL-Tax"}); ltax_py=S(py,{"PL-Tax"})
         _cr=cov.get("cit_rate",0.30) or 0.30; _mtr=cov.get("min_tax",0.005) or 0.005
-        if abs(ltax)<1: ltax=max(max(0,lpbt)*_cr,(iinc+feeinc+lothinc)*_mtr)
-        if abs(ltax_py)<1: ltax_py=max(max(0,lpbt_py)*_cr,(iinc_py+feeinc_py+lothinc_py)*_mtr)
+        if abs(ltax)<1: ltax=max(max(0,lpbt)*_cr,(iinc+divinc+feeinc+lothinc)*_mtr)
+        if abs(ltax_py)<1: ltax_py=max(max(0,lpbt_py)*_cr,(iinc_py+divinc_py+feeinc_py+lothinc_py)*_mtr)
         lpat=lpbt-ltax; lpat_py=lpbt_py-ltax_py
-        rev=iinc+feeinc+lothinc; rev_py=iinc_py+feeinc_py+lothinc_py
+        rev=iinc+divinc+feeinc+lothinc; rev_py=iinc_py+divinc_py+feeinc_py+lothinc_py
         cos=iexp+impair; cos_py=iexp_py+impair_py; admin=lopex; admin_py=lopex_py; sell=0; sell_py=0
         oi=0; oi_py=0; fin=0; fin_py=0; gross=rev-cos; gross_py=rev_py-cos_py; op=lpbt; op_py=lpbt_py
         taxexp=ltax; taxexp_py=ltax_py; pat=lpat; pat_py=lpat_py
@@ -515,11 +517,17 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         loans_net=S(cy,{"LEND-Loans","LEND-ECL"}); loans_net_py=S(py,{"LEND-Loans","LEND-ECL"})
         soci=[money(iinc,iinc_py,"Interest income","L1",indent=True),
               money(-iexp,-iexp_py,"Interest expense","L2",indent=True),
-              money(nii,nii_py,"NET INTEREST INCOME",kind="subtotal"),
-              money(-impair,-impair_py,"Impairment charge on financial assets","L3",indent=True),
-              money(niai,niai_py,"Net interest income after impairment",kind="subtotal"),
-              money(feeinc,feeinc_py,"Fee and commission income","L4",indent=True)]
+              money(nii,nii_py,"NET INTEREST INCOME",kind="subtotal")]
+        if abs(impair)>=1 or abs(impair_py)>=1:          # impairment lines only when there is a loan book
+            soci+=[money(-impair,-impair_py,"Impairment charge on financial assets","L3",indent=True),
+                   money(niai,niai_py,"Net interest income after impairment",kind="subtotal")]
+        if abs(divinc)>=1 or abs(divinc_py)>=1:
+            soci.append(money(divinc,divinc_py,"Dividend income","L3b",indent=True))
+        soci.append(money(feeinc,feeinc_py,"Fee and commission income","L4",indent=True))
         if abs(lothinc)>=1 or abs(lothinc_py)>=1: soci.append(money(lothinc,lothinc_py,"Other operating income","L5",indent=True))
+        if (abs(divinc)>=1 or abs(divinc_py)>=1 or abs(feeinc)>=1 or abs(feeinc_py)>=1
+                or abs(lothinc)>=1 or abs(lothinc_py)>=1):     # net investment income subtotal for asset-manager spread
+            soci.append(money(ninv,ninv_py,"NET INVESTMENT INCOME",kind="subtotal"))
         soci+=[money(-lopex,-lopex_py,"Operating expenses","L6",indent=True),
                money(lpbt,lpbt_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
                money(-ltax,-ltax_py,"Taxation","12",indent=True),
@@ -555,6 +563,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     _cr=[]
     _al(_cr,{"CA-Inventory","CA-Inv-RawMat","CA-Inv-WIP","CA-Inv-FG"},"Inventory")
     _al(_cr,{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CA-RelatedParty-Rec"},"Trade & other receivables","14")
+    _al(_cr,{"CA-FinAsset-AmCost"},"Financial assets at amortised cost")
+    _al(_cr,{"CA-FinAsset-FVTPL"},"Financial assets at fair value through profit or loss")
+    _al(_cr,{"CA-FinAsset-FVOCI"},"Financial assets at fair value through OCI")
+    _al(_cr,{"CA-AccrInt"},"Accrued interest income")
     _al(_cr,{"CA-ContractAsset"},"Contract assets")
     _al(_cr,{"CA-WHT-Recoverable"},"WHT recoverable")
     _al(_cr,{"CA-VAT-Input"},"Recoverable VAT")
@@ -577,6 +589,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     _al(_ncl,{"NCL-Other"},"Other long-term liabilities","",-1)
     _al(_ncl,{"NCL-DefTax"},"Deferred tax liability","",-1)
     _cl=[]
+    _al(_cl,{"CL-ClientFunds"},"Portfolio under management (due to clients)","",-1)
     _al(_cl,{"CL-Trade-Pay"},"Trade payables","",-1)
     _al(_cl,{"CL-Accruals"},"Accruals","19",-1)
     _al(_cl,{"CL-Provisions"},"Provisions","",-1)
@@ -604,7 +617,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
           money(tel,tel_py,"TOTAL EQUITY AND LIABILITIES",kind="grandtotal")]
     if lend:
         _ci=next((i for i,r in enumerate(sofp) if isinstance(r,dict) and r.get("label")=="Cash & cash equivalents"),None)
-        if _ci is not None:
+        if _ci is not None and (abs(loans_net)>=1 or abs(loans_net_py)>=1):   # only show the loan book when there is one
             sofp.insert(_ci, money(loans_net,loans_net_py,"Loans and advances to customers","LB",indent=True))
 
     # ---------- SCF (indirect, derived from BS movements -> ties by identity) ----------
