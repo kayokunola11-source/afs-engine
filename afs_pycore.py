@@ -490,7 +490,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
                money(pat,pat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
     # ===== Lending (regulated finance company) — Full IFRS variant =====
     lend = any(str(a.get("section","")).startswith("LEND-") for a in tb.values())
-    loans_net=loans_net_py=0.0
+    loans_net=loans_net_py=0.0; _lend_oci=False
     if lend:
         full_ifrs=True
         iinc=S(cy,{"LEND-IntInc"},-1); iinc_py=S(py,{"LEND-IntInc"},-1)
@@ -499,6 +499,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         feeinc=S(cy,{"LEND-FeeInc"},-1); feeinc_py=S(py,{"LEND-FeeInc"},-1)
         lothinc=S(cy,{"LEND-OthInc"},-1); lothinc_py=S(py,{"LEND-OthInc"},-1)
         divinc=S(cy,{"LEND-DivInc"},-1); divinc_py=S(py,{"LEND-DivInc"},-1)   # dividend/investment income (asset-manager spread)
+        ocifx=S(cy,{"OCI-FX"},-1); ocifx_py=S(py,{"OCI-FX"},-1); _lend_oci=(abs(ocifx)>=1 or abs(ocifx_py)>=1)   # OCI: FX translation for the year
         lopex=S(cy,{"PL-Admin","PL-Selling"}); lopex_py=S(py,{"PL-Admin","PL-Selling"})
         nii=iinc-iexp; nii_py=iinc_py-iexp_py
         niai=nii-impair; niai_py=nii_py-impair_py
@@ -513,7 +514,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         cos=iexp+impair; cos_py=iexp_py+impair_py; admin=lopex; admin_py=lopex_py; sell=0; sell_py=0
         oi=0; oi_py=0; fin=0; fin_py=0; gross=rev-cos; gross_py=rev_py-cos_py; op=lpbt; op_py=lpbt_py
         taxexp=ltax; taxexp_py=ltax_py; pat=lpat; pat_py=lpat_py
-        re_close=re_acct+pat; re_close_py=re_acct_py+pat_py; re_open=re_close_py
+        re_close=re_acct+pat+ocifx; re_close_py=re_acct_py+pat_py+ocifx_py; re_open=re_close_py   # RE absorbs total comprehensive income (incl. OCI)
         loans_net=S(cy,{"LEND-Loans","LEND-ECL"}); loans_net_py=S(py,{"LEND-Loans","LEND-ECL"})
         soci=[money(iinc,iinc_py,"Interest income","L1",indent=True),
               money(-iexp,-iexp_py,"Interest expense","L2",indent=True),
@@ -531,8 +532,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         soci+=[money(-lopex,-lopex_py,"Operating expenses","L6",indent=True),
                money(lpbt,lpbt_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
                money(-ltax,-ltax_py,"Taxation","12",indent=True),
-               money(lpat,lpat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total"),
-               money(lpat,lpat_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal")]
+               money(lpat,lpat_py,"PROFIT/(LOSS) FOR THE YEAR",kind="total")]
+        if _lend_oci:
+            soci.append({"label":"Other comprehensive income","kind":"section"})
+            soci.append(money(ocifx,ocifx_py,"Items that may be reclassified: foreign exchange translation differences",indent=True))
+        soci.append(money(lpat+ocifx,lpat_py+ocifx_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal"))
     def bs_line(secs,label,note="",sign=1):
         return money(S(cy,secs,sign),S(py,secs,sign),label,note,indent=True)
     ppe_cy=S(cy,{"NCA-PPE-Cost","NCA-PPE-Dep"}); ppe_py=S(py,{"NCA-PPE-Cost","NCA-PPE-Dep"})
@@ -882,6 +886,16 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
             if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _le[:-1]): notes.append(N(f"{n}. Interest Expense",table=_le)); n+=1
             _lf=figtab({"LEND-FeeInc"},-1)
             if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _lf[:-1]): notes.append(N(f"{n}. Fee and Commission Income",table=_lf)); n+=1
+            _fa=figtab({"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"})
+            if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _fa[:-1]):
+                notes.append(N(f"{n}. Financial Assets",
+                    ["Financial assets comprise investments held to collect contractual cash flows (measured at amortised cost) and investments held for trading (measured at fair value through profit or loss), together with accrued interest income. The carrying amounts are analysed below:"],
+                    table=_fa)); n+=1
+            _cf=figtab({"CL-ClientFunds"},-1)
+            if any(abs(r[1])>=1 or abs(r[2])>=1 for r in _cf[:-1]):
+                notes.append(N(f"{n}. Portfolio Under Management (Due to Clients)",
+                    ["Amounts due to clients represent funds under management held on behalf of clients and repayable in accordance with the terms of each mandate. They are measured at amortised cost and analysed below:"],
+                    table=_cf)); n+=1
             _lb=_read_loanbook(wb)
             if _lb:
                 _rows=[]; tg=te=tgp=tep=0.0
@@ -923,20 +937,35 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         # --- Financial instruments by category (IFRS 9 / IFRS 7) ---
         far=S(cy,{"CA-Trade-Rec","CA-Other-Rec"}); far_py=S(py,{"CA-Trade-Rec","CA-Other-Rec"})
         fac=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); fac_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
+        fam=S(cy,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"}); fam_py=S(py,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"})
+        ffv=S(cy,{"CA-FinAsset-FVTPL"}); ffv_py=S(py,{"CA-FinAsset-FVTPL"})
+        ffvoci=S(cy,{"CA-FinAsset-FVOCI"}); ffvoci_py=S(py,{"CA-FinAsset-FVOCI"})
+        fcl=S(cy,{"CL-ClientFunds"},-1); fcl_py=S(py,{"CL-ClientFunds"},-1)
         fap=S(cy,{"CL-Trade-Pay","CL-Accruals"},-1); fap_py=S(py,{"CL-Trade-Pay","CL-Accruals"},-1)
         fab=S(cy,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1); fab_py=S(py,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1)
         fad=S(cy,{"CL-DCA"},-1); fad_py=S(py,{"CL-DCA"},-1)
-        fi=[["Financial assets at amortised cost",None,None],
-            ["Trade and other receivables",far,far_py],
-            ["Cash and cash equivalents",fac,fac_py],
-            ["Total financial assets",far+fac,far_py+fac_py,"total"],
-            ["Financial liabilities at amortised cost",None,None],
-            ["Trade and other payables",fap,fap_py]]
+        _amc=fam+far+fac; _amc_py=fam_py+far_py+fac_py
+        fi=[["Financial assets at amortised cost",None,None]]
+        if abs(fam)>=1 or abs(fam_py)>=1: fi.append(["Investments and loans at amortised cost",fam,fam_py])
+        fi+=[["Trade and other receivables",far,far_py],
+             ["Cash and cash equivalents",fac,fac_py]]
+        _has_fv=(abs(ffv)>=1 or abs(ffv_py)>=1 or abs(ffvoci)>=1 or abs(ffvoci_py)>=1)
+        if _has_fv: fi.append(["Subtotal — at amortised cost",_amc,_amc_py,"total"])
+        if abs(ffv)>=1 or abs(ffv_py)>=1:
+            fi+=[["Financial assets at fair value through profit or loss",None,None],
+                 ["Investment securities at FVTPL",ffv,ffv_py]]
+        if abs(ffvoci)>=1 or abs(ffvoci_py)>=1:
+            fi+=[["Financial assets at fair value through OCI",None,None],
+                 ["Investment securities at FVOCI",ffvoci,ffvoci_py]]
+        fi.append(["Total financial assets",_amc+ffv+ffvoci,_amc_py+ffv_py+ffvoci_py,"total"])
+        fi.append(["Financial liabilities at amortised cost",None,None])
+        if abs(fcl)>=1 or abs(fcl_py)>=1: fi.append(["Amounts due to clients (funds under management)",fcl,fcl_py])
+        fi.append(["Trade and other payables",fap,fap_py])
         if abs(fab)>=1 or abs(fab_py)>=1: fi.append(["Borrowings",fab,fab_py])
         if abs(fad)>=1 or abs(fad_py)>=1: fi.append(["Directors\' current account",fad,fad_py])
-        fi.append(["Total financial liabilities",fap+fab+fad,fap_py+fab_py+fad_py,"total"])
+        fi.append(["Total financial liabilities",fcl+fap+fab+fad,fcl_py+fap_py+fab_py+fad_py,"total"])
         notes.append(N(f"{n}. Financial Instruments by Category",
-            ["The carrying amounts of the Company\'s financial instruments, all of which are measured at amortised cost, are set out below. Their carrying amounts approximate their fair values."],
+            ["The carrying amounts of the Company\'s financial instruments, by IFRS 9 measurement category, are set out below. For instruments measured at amortised cost, the carrying amounts approximate their fair values."],
             table=fi)); n+=1
         # --- Group B: schedule-driven Full-IFRS notes ---
         _dt=read_deftax(wb, cov.get("cit_rate",0.30) or 0.30)
@@ -1047,8 +1076,12 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
             for _g in (_nd.get("grids") or []):
                 _mf=_g.get("money_from",1)
                 _g["rows"]=[[(c/scale if (i>=_mf and isinstance(c,(int,float))) else c) for i,c in enumerate(row)] for row in _g["rows"]]
+    _labels={}
+    if _lend_oci:
+        _labels["soci_footnote"]="Other comprehensive income for the year comprises foreign exchange translation differences, which may be reclassified to profit or loss in future periods."
     return {"meta":meta,"entity":entity,"soci":soci,"sofp":sofp,"scf":scf,"soce":soce,"notes":notes,
             "fin_summary":None,"tax_schedules":_tax_schedules(wb),"flags":res["errors"],
+            "labels":_labels,
             "tie_outs":[{"name":x,"pass":bool(p)} for x,p in tie]}
 
 
