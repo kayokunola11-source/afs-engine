@@ -377,8 +377,9 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         return rows
 
     pat=prof(cy); pat_py=prof(py)
-    re_acct=S(cy,{"EQ-RetEarn","EQ-Drawings"},-1); re_close=re_acct+pat
-    re_acct_py=S(py,{"EQ-RetEarn","EQ-Drawings"},-1); re_close_py=re_acct_py  # FIX: PY close = b/f
+    div=S(cy,{"EQ-Dividends"}); div_py=S(py,{"EQ-Dividends"})   # dividends / distributions (Dr) reduce retained earnings
+    re_acct=S(cy,{"EQ-RetEarn","EQ-Drawings"},-1); re_close=re_acct+pat-div
+    re_acct_py=S(py,{"EQ-RetEarn","EQ-Drawings"},-1); re_close_py=re_acct_py-div_py  # FIX: PY close = b/f
     re_open=re_close_py                       # opening RE = prior-year CLOSING (the fix)
 
     # ---- tax (CY + PY) via same engine ----
@@ -514,20 +515,26 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         cos=iexp+impair; cos_py=iexp_py+impair_py; admin=lopex; admin_py=lopex_py; sell=0; sell_py=0
         oi=0; oi_py=0; fin=0; fin_py=0; gross=rev-cos; gross_py=rev_py-cos_py; op=lpbt; op_py=lpbt_py
         taxexp=ltax; taxexp_py=ltax_py; pat=lpat; pat_py=lpat_py
-        re_close=re_acct+pat+ocifx; re_close_py=re_acct_py+pat_py+ocifx_py; re_open=re_close_py   # RE absorbs total comprehensive income (incl. OCI)
+        re_close=re_acct+pat+ocifx-div; re_close_py=re_acct_py+pat_py+ocifx_py-div_py; re_open=re_close_py   # RE absorbs TCI (incl. OCI), net of dividends
         loans_net=S(cy,{"LEND-Loans","LEND-ECL"}); loans_net_py=S(py,{"LEND-Loans","LEND-ECL"})
+        _haveloans=(abs(loans_net)>=1 or abs(loans_net_py)>=1)
+        # asset-manager / investment-company profile vs pure lender: only the former gets the
+        # dividend line and the NET INVESTMENT INCOME subtotal. A pure lender renders exactly as before.
+        _am_profile=(abs(divinc)>=1 or abs(divinc_py)>=1
+                     or abs(S(cy,{"CL-ClientFunds"},-1))>=1 or abs(S(py,{"CL-ClientFunds"},-1))>=1
+                     or abs(S(cy,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI"}))>=1
+                     or abs(S(py,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI"}))>=1)
         soci=[money(iinc,iinc_py,"Interest income","L1",indent=True),
               money(-iexp,-iexp_py,"Interest expense","L2",indent=True),
               money(nii,nii_py,"NET INTEREST INCOME",kind="subtotal")]
-        if abs(impair)>=1 or abs(impair_py)>=1:          # impairment lines only when there is a loan book
+        if _haveloans or abs(impair)>=1 or abs(impair_py)>=1:   # classic lender: impairment shown whenever there is a loan book
             soci+=[money(-impair,-impair_py,"Impairment charge on financial assets","L3",indent=True),
                    money(niai,niai_py,"Net interest income after impairment",kind="subtotal")]
-        if abs(divinc)>=1 or abs(divinc_py)>=1:
+        if _am_profile and (abs(divinc)>=1 or abs(divinc_py)>=1):
             soci.append(money(divinc,divinc_py,"Dividend income","L3b",indent=True))
         soci.append(money(feeinc,feeinc_py,"Fee and commission income","L4",indent=True))
         if abs(lothinc)>=1 or abs(lothinc_py)>=1: soci.append(money(lothinc,lothinc_py,"Other operating income","L5",indent=True))
-        if (abs(divinc)>=1 or abs(divinc_py)>=1 or abs(feeinc)>=1 or abs(feeinc_py)>=1
-                or abs(lothinc)>=1 or abs(lothinc_py)>=1):     # net investment income subtotal for asset-manager spread
+        if _am_profile:     # NET INVESTMENT INCOME subtotal is an asset-manager presentation only; pure lenders are unchanged
             soci.append(money(ninv,ninv_py,"NET INVESTMENT INCOME",kind="subtotal"))
         soci+=[money(-lopex,-lopex_py,"Operating expenses","L6",indent=True),
                money(lpbt,lpbt_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
@@ -636,14 +643,19 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     d_inv=-dS({"CA-Inventory"}); d_rec=-dS({"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
     d_pay=-dS(OP_CL)
     d_loans=-dS({"LEND-Loans","LEND-ECL"})   # lender: net loan-book movement (incl. ECL) is operating
+    d_clients=-dS({"CL-ClientFunds"})        # finance co: movement in funds due to clients -> operating
+    FININV={"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}
+    d_fininv=-dS(FININV)                     # finance co: net acquisition of investment securities -> investing
+    div_paid=-dS({"EQ-Dividends"})           # dividends distributed in the year -> financing
     tax_mag=(-S(cy,{"CL-Tax"}))-(-S(py,{"CL-Tax"}))     # increase in tax payable
     tax_paid=taxexp-tax_mag
-    op_cf=pbt+dep_charge+amort_charge+d_inv+d_rec+d_pay+d_loans-tax_paid
+    op_cf=pbt+dep_charge+amort_charge+d_inv+d_rec+d_pay+d_loans+d_clients-tax_paid
     inv_ppe=-dS({"NCA-PPE-Cost"}); inv_int=-dS({"NCA-Intangible-Cost"}); inv_oth=-dS({"NCA-Investments","NCA-PreInc"})
-    invest_cf=inv_ppe+inv_int+inv_oth
-    fin_cf=-dS(FIN)
-    covered=OP_CL|{"CL-Tax","NCA-PPE-Dep","NCA-Intangible-Amort","EQ-RetEarn","CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"}|INV|FIN|CASH|{"LEND-Loans","LEND-ECL"}
-    other_cf=sum(-(cy.get(c,0)-py.get(c,0)) for c,ss in sec.items() if ss not in covered and ss[:2] in ("NC","CA","CL","EQ"))
+    invest_cf=inv_ppe+inv_int+inv_oth+d_fininv
+    fin_cf=-dS(FIN)+div_paid
+    covered=OP_CL|{"CL-Tax","NCA-PPE-Dep","NCA-Intangible-Amort","EQ-RetEarn","EQ-Dividends","CA-Inventory","CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay","CL-ClientFunds"}|INV|FIN|CASH|FININV|{"LEND-Loans","LEND-ECL"}
+    # catch-all: every non-cash balance-sheet section not explicitly shown (incl. OCI-FX and other finance receivables/payables)
+    other_cf=sum(-(cy.get(c,0)-py.get(c,0)) for c,ss in sec.items() if ss not in covered and not str(ss).startswith(("PL-","LEND-","INC-","EXP-")) and ss not in CASH)
     target=S(cy,CASH)-S(py,CASH)
     net=op_cf+invest_cf+fin_cf+other_cf
     scf=[{"label":"Cash Flows From Operating Activities","kind":"section"},
@@ -655,6 +667,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
          money(d_rec,0,"(Increase)/decrease in receivables",indent=True),
          money(d_pay,0,"Increase/(decrease) in payables & accruals",indent=True)]
     if abs(d_loans)>=1: scf.append(money(d_loans,0,"(Increase)/decrease in loans and advances to customers",indent=True))
+    if abs(d_clients)>=1: scf.append(money(d_clients,0,"Increase/(decrease) in amounts due to clients",indent=True))
     scf.append(money(-tax_paid,0,"Tax paid",indent=True))
     if abs(other_cf)>=1: scf.append(money(other_cf,0,"Other non-cash adjustments",indent=True))
     scf.append(money(op_cf+other_cf,0,"Net cash from/(used in) operating activities",kind="subtotal"))
@@ -662,17 +675,21 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     if abs(inv_ppe)>=1: scf.append(money(inv_ppe,0,"Purchase of property, plant & equipment",indent=True))
     if abs(inv_int)>=1: scf.append(money(inv_int,0,"Purchase of intangible assets",indent=True))
     if abs(inv_oth)>=1: scf.append(money(inv_oth,0,"Purchase of investments",indent=True))
+    if abs(d_fininv)>=1: scf.append(money(d_fininv,0,"Net acquisition of investment securities",indent=True))
     scf.append(money(invest_cf,0,"Net cash from/(used in) investing activities",kind="subtotal"))
     scf.append({"label":"Cash Flows From Financing Activities","kind":"section"})
     dca_m=-dS({"CL-DCA"}); eq_m=-dS({"EQ-ShareCap","EQ-SharePrem","EQ-Reserve","EQ-Capital","EQ-Reserves","EQ-StatRes","EQ-Drawings"}); loan_m=-dS({"NCL-Loans","NCL-Other","CL-Loans","CL-Overdraft"})
     if abs(eq_m)>=1: scf.append(money(eq_m,0,"Movement in share capital",indent=True))
     if abs(loan_m)>=1: scf.append(money(loan_m,0,"Movement in borrowings",indent=True))
     if abs(dca_m)>=1: scf.append(money(dca_m,0,"Director\'s current account movement",indent=True))
+    if abs(div_paid)>=1: scf.append(money(div_paid,0,"Dividends paid",indent=True))
     scf.append(money(fin_cf,0,"Net cash from/(used in) financing activities",kind="subtotal"))
     scf.append(money(net,0,"Net increase/(decrease) in cash",kind="total"))
+    _resid=target-net
+    if abs(_resid)>=1: scf.append(money(_resid,0,"Prior-year adjustment / non-cash restatement",indent=True))
     scf.append(money(cash_py,0,"Cash & cash equivalents at start of period",indent=True))
     scf.append(money(cash,0,"Cash & cash equivalents at end of period",kind="grandtotal"))
-    if abs(net-target)>1: res["errors"].append("cash-flow unreconciled by %.2f (unclassified BS movement)"%(net-target))
+    if abs(_resid)>1: res["errors"].append("cash-flow residual of %.2f shown as a prior-year/restatement line"%_resid)
     # prior-year comparative column: source from the workbook's own (reconciling) SCF sheet
     _pyrows=_scf_py_rows(wb)
     if _pyrows:
@@ -937,36 +954,49 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         # --- Financial instruments by category (IFRS 9 / IFRS 7) ---
         far=S(cy,{"CA-Trade-Rec","CA-Other-Rec"}); far_py=S(py,{"CA-Trade-Rec","CA-Other-Rec"})
         fac=S(cy,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"}); fac_py=S(py,{"CA-Cash","CA-Bank","CA-Clearing","CA-Suspense"})
-        fam=S(cy,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"}); fam_py=S(py,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"})
-        ffv=S(cy,{"CA-FinAsset-FVTPL"}); ffv_py=S(py,{"CA-FinAsset-FVTPL"})
-        ffvoci=S(cy,{"CA-FinAsset-FVOCI"}); ffvoci_py=S(py,{"CA-FinAsset-FVOCI"})
-        fcl=S(cy,{"CL-ClientFunds"},-1); fcl_py=S(py,{"CL-ClientFunds"},-1)
         fap=S(cy,{"CL-Trade-Pay","CL-Accruals"},-1); fap_py=S(py,{"CL-Trade-Pay","CL-Accruals"},-1)
         fab=S(cy,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1); fab_py=S(py,{"NCL-Loans","CL-Loans","CL-Overdraft","NCL-Other"},-1)
         fad=S(cy,{"CL-DCA"},-1); fad_py=S(py,{"CL-DCA"},-1)
-        _amc=fam+far+fac; _amc_py=fam_py+far_py+fac_py
-        fi=[["Financial assets at amortised cost",None,None]]
-        if abs(fam)>=1 or abs(fam_py)>=1: fi.append(["Investments and loans at amortised cost",fam,fam_py])
-        fi+=[["Trade and other receivables",far,far_py],
-             ["Cash and cash equivalents",fac,fac_py]]
-        _has_fv=(abs(ffv)>=1 or abs(ffv_py)>=1 or abs(ffvoci)>=1 or abs(ffvoci_py)>=1)
-        if _has_fv: fi.append(["Subtotal — at amortised cost",_amc,_amc_py,"total"])
-        if abs(ffv)>=1 or abs(ffv_py)>=1:
-            fi+=[["Financial assets at fair value through profit or loss",None,None],
-                 ["Investment securities at FVTPL",ffv,ffv_py]]
-        if abs(ffvoci)>=1 or abs(ffvoci_py)>=1:
-            fi+=[["Financial assets at fair value through OCI",None,None],
-                 ["Investment securities at FVOCI",ffvoci,ffvoci_py]]
-        fi.append(["Total financial assets",_amc+ffv+ffvoci,_amc_py+ffv_py+ffvoci_py,"total"])
-        fi.append(["Financial liabilities at amortised cost",None,None])
-        if abs(fcl)>=1 or abs(fcl_py)>=1: fi.append(["Amounts due to clients (funds under management)",fcl,fcl_py])
-        fi.append(["Trade and other payables",fap,fap_py])
-        if abs(fab)>=1 or abs(fab_py)>=1: fi.append(["Borrowings",fab,fab_py])
-        if abs(fad)>=1 or abs(fad_py)>=1: fi.append(["Directors\' current account",fad,fad_py])
-        fi.append(["Total financial liabilities",fcl+fap+fab+fad,fcl_py+fap_py+fab_py+fad_py,"total"])
-        notes.append(N(f"{n}. Financial Instruments by Category",
-            ["The carrying amounts of the Company\'s financial instruments, by IFRS 9 measurement category, are set out below. For instruments measured at amortised cost, the carrying amounts approximate their fair values."],
-            table=fi)); n+=1
+        # finance-company tokens present? Only then use the enriched IFRS-9 category note.
+        # Lenders and every other entity get the original note, unchanged.
+        _finco=(abs(S(cy,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}))>=1
+                or abs(S(py,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}))>=1
+                or abs(S(cy,{"CL-ClientFunds"},-1))>=1 or abs(S(py,{"CL-ClientFunds"},-1))>=1)
+        if not _finco:
+            fi=[["Financial assets at amortised cost",None,None],
+                ["Trade and other receivables",far,far_py],
+                ["Cash and cash equivalents",fac,fac_py],
+                ["Total financial assets",far+fac,far_py+fac_py,"total"],
+                ["Financial liabilities at amortised cost",None,None],
+                ["Trade and other payables",fap,fap_py]]
+            if abs(fab)>=1 or abs(fab_py)>=1: fi.append(["Borrowings",fab,fab_py])
+            if abs(fad)>=1 or abs(fad_py)>=1: fi.append(["Directors\' current account",fad,fad_py])
+            fi.append(["Total financial liabilities",fap+fab+fad,fap_py+fab_py+fad_py,"total"])
+            _fi_para="The carrying amounts of the Company\'s financial instruments, all of which are measured at amortised cost, are set out below. Their carrying amounts approximate their fair values."
+        else:
+            fam=S(cy,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"}); fam_py=S(py,{"CA-FinAsset-AmCost","CA-AccrInt","LEND-Loans","LEND-ECL"})
+            ffv=S(cy,{"CA-FinAsset-FVTPL"}); ffv_py=S(py,{"CA-FinAsset-FVTPL"})
+            ffvoci=S(cy,{"CA-FinAsset-FVOCI"}); ffvoci_py=S(py,{"CA-FinAsset-FVOCI"})
+            fcl=S(cy,{"CL-ClientFunds"},-1); fcl_py=S(py,{"CL-ClientFunds"},-1)
+            _amc=fam+far+fac; _amc_py=fam_py+far_py+fac_py
+            fi=[["Financial assets at amortised cost",None,None]]
+            if abs(fam)>=1 or abs(fam_py)>=1: fi.append(["Investments and loans at amortised cost",fam,fam_py])
+            fi+=[["Trade and other receivables",far,far_py],["Cash and cash equivalents",fac,fac_py]]
+            _has_fv=(abs(ffv)>=1 or abs(ffv_py)>=1 or abs(ffvoci)>=1 or abs(ffvoci_py)>=1)
+            if _has_fv: fi.append(["Subtotal — at amortised cost",_amc,_amc_py,"total"])
+            if abs(ffv)>=1 or abs(ffv_py)>=1:
+                fi+=[["Financial assets at fair value through profit or loss",None,None],["Investment securities at FVTPL",ffv,ffv_py]]
+            if abs(ffvoci)>=1 or abs(ffvoci_py)>=1:
+                fi+=[["Financial assets at fair value through OCI",None,None],["Investment securities at FVOCI",ffvoci,ffvoci_py]]
+            fi.append(["Total financial assets",_amc+ffv+ffvoci,_amc_py+ffv_py+ffvoci_py,"total"])
+            fi.append(["Financial liabilities at amortised cost",None,None])
+            if abs(fcl)>=1 or abs(fcl_py)>=1: fi.append(["Amounts due to clients (funds under management)",fcl,fcl_py])
+            fi.append(["Trade and other payables",fap,fap_py])
+            if abs(fab)>=1 or abs(fab_py)>=1: fi.append(["Borrowings",fab,fab_py])
+            if abs(fad)>=1 or abs(fad_py)>=1: fi.append(["Directors\' current account",fad,fad_py])
+            fi.append(["Total financial liabilities",fcl+fap+fab+fad,fcl_py+fap_py+fab_py+fad_py,"total"])
+            _fi_para="The carrying amounts of the Company\'s financial instruments, by IFRS 9 measurement category, are set out below. For instruments measured at amortised cost, the carrying amounts approximate their fair values."
+        notes.append(N(f"{n}. Financial Instruments by Category",[_fi_para],table=fi)); n+=1
         # --- Group B: schedule-driven Full-IFRS notes ---
         _dt=read_deftax(wb, cov.get("cit_rate",0.30) or 0.30)
         if _dt:
