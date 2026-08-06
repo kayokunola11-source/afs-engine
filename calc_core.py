@@ -207,7 +207,9 @@ def statement_subtotals(tb):
 def compute_tax(tb, pbt, cover, cap_allow_cy=0.0):
     """Nigerian company tax charge, mirroring the CIT schedule (regime-aware)."""
     small = cover["size"].lower() == "small"
-    revenue = -sum(a["cy_signed"] for a in tb.values() if a["section"] == "PL-Revenue")
+    _INCSEC = ("PL-Revenue", "LEND-IntInc", "LEND-FeeInc", "LEND-OthInc", "LEND-DivInc",
+               "INC-MgmtFee", "INC-PerfFee", "INC-Other")
+    revenue = -sum(a["cy_signed"] for a in tb.values() if a["section"] in _INCSEC)  # gross income for the minimum-tax base (finance / asset-mgmt income included)
     dep = tb.get("6800", {}).get("cy_signed", 0.0) + tb.get("6810", {}).get("cy_signed", 0.0)
     donations = tb.get("6420", {}).get("cy_signed", 0.0)
 

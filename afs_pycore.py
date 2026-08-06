@@ -354,7 +354,8 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     inp=calc_core.read_inputs(wb); tb,errs=calc_core.build_trial_balance(inp); cov=inp["cover"]
     if any(str(a.get("section","")).startswith("NGO-") for a in tb.values()):
         return _build_ngo(wb, tb, cov, meta_over, disclosures, scale)
-    _plnt={"PL-Revenue","PL-OtherInc","PL-OtherGains","PL-COS","PL-Admin","PL-Selling","PL-OtherExp","PL-FinCost"}
+    _LENDPL={"LEND-IntInc","LEND-IntExp","LEND-Impair","LEND-FeeInc","LEND-OthInc","LEND-DivInc"}
+    _plnt=(PL|_LENDPL)-{"PL-Tax"}   # full P&L universe (trading, asset-manager, finance) so the tax PBT is correct for every entity type
     _pbt=-sum(a["cy_signed"] for a in tb.values() if a["section"] in _plnt)
     _cap=num(wb["CapAllow"]["H13"].value) if "CapAllow" in wb.sheetnames else 0.0
     res={"tb":tb,"cover":cov,"tax":calc_core.compute_tax(tb,_pbt,cov,_cap),"errors":errs,"_cap_cy":_cap}
@@ -389,7 +390,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     taxcy=res["tax"]
     # PY tax: rebuild a py-view tb
     tb_py={k:{"section":sec[k],"cy_signed":py.get(k,0.0)} for k in sec}
-    pbt_py=-sum(py.get(c,0.0) for c,s in sec.items() if s in (PL-{"PL-Tax"}))
+    pbt_py=-sum(py.get(c,0.0) for c,s in sec.items() if s in ((PL|_LENDPL)-{"PL-Tax"}))
     taxpy=calc_core.compute_tax(tb_py,pbt_py,cov)
 
     # ---------- statements ----------
@@ -447,10 +448,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         soci.append(money(-opex,-opex_py,"Operating expenses","9",indent=True))
         soci.append(money(opam,opam_py,"OPERATING PROFIT/(LOSS)",kind="subtotal"))
         if abs(finc)>=1 or abs(finc_py)>=1: soci.append(money(-finc,-finc_py,"Finance cost","11",indent=True))
-        # Asset-manager tax: max(CIT on taxable profit, minimum tax = rate x gross income)
-        _mtr=cov.get("min_tax",0.005) or 0.005; _cr=cov.get("cit_rate",0.30) or 0.30
-        _txbl=pbtam+S(cy,{"EXP-Depr"}); _txbl_py=pbtam_py+S(py,{"EXP-Depr"})
-        tax_am=max(max(0,_txbl)*_cr,(tfi+invinc)*_mtr); tax_am_py=max(max(0,_txbl_py)*_cr,(tfi_py+invinc_py)*_mtr)
+        # Single source of truth: booked tax if posted, else the computed charge the tax note shows.
+        tax_am=S(cy,{"PL-Tax"}); tax_am_py=S(py,{"PL-Tax"})
+        if abs(tax_am)<1: tax_am=taxcy["total_tax"]
+        if abs(tax_am_py)<1: tax_am_py=taxpy["total_tax"]
+        taxexp=tax_am; taxexp_py=tax_am_py
         pat=pbtam-tax_am; pat_py=pbtam_py-tax_am_py
         soci+=[money(pbtam,pbtam_py,"PROFIT/(LOSS) BEFORE TAX",kind="subtotal"),
                money(-tax_am,-tax_am_py,"Taxation","12",indent=True),
@@ -506,10 +508,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         niai=nii-impair; niai_py=nii_py-impair_py
         ninv=niai+divinc+feeinc+lothinc; ninv_py=niai_py+divinc_py+feeinc_py+lothinc_py   # NET INVESTMENT INCOME
         lpbt=ninv-lopex; lpbt_py=ninv_py-lopex_py
+        # Single source of truth: booked tax if the client posted one, else the SAME computed
+        # charge the tax note (calc_core.compute_tax, now finance-aware) shows. No separate face-only formula.
         ltax=S(cy,{"PL-Tax"}); ltax_py=S(py,{"PL-Tax"})
-        _cr=cov.get("cit_rate",0.30) or 0.30; _mtr=cov.get("min_tax",0.005) or 0.005
-        if abs(ltax)<1: ltax=max(max(0,lpbt)*_cr,(iinc+divinc+feeinc+lothinc)*_mtr)
-        if abs(ltax_py)<1: ltax_py=max(max(0,lpbt_py)*_cr,(iinc_py+divinc_py+feeinc_py+lothinc_py)*_mtr)
+        if abs(ltax)<1: ltax=taxcy["total_tax"]
+        if abs(ltax_py)<1: ltax_py=taxpy["total_tax"]
         lpat=lpbt-ltax; lpat_py=lpbt_py-ltax_py
         rev=iinc+divinc+feeinc+lothinc; rev_py=iinc_py+divinc_py+feeinc_py+lothinc_py
         cos=iexp+impair; cos_py=iexp_py+impair_py; admin=lopex; admin_py=lopex_py; sell=0; sell_py=0
@@ -544,6 +547,11 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
             soci.append({"label":"Other comprehensive income","kind":"section"})
             soci.append(money(ocifx,ocifx_py,"Items that may be reclassified: foreign exchange translation differences",indent=True))
         soci.append(money(lpat+ocifx,lpat_py+ocifx_py,"TOTAL COMPREHENSIVE INCOME",kind="grandtotal"))
+    # Finance / asset-management entity? Drives finance-aware narrative, policies and note taxonomy.
+    _finco = lend or am or (
+        abs(S(cy,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}))>=1
+        or abs(S(py,{"CA-FinAsset-AmCost","CA-FinAsset-FVTPL","CA-FinAsset-FVOCI","CA-AccrInt"}))>=1
+        or abs(S(cy,{"CL-ClientFunds"},-1))>=1 or abs(S(py,{"CL-ClientFunds"},-1))>=1)
     def bs_line(secs,label,note="",sign=1):
         return money(S(cy,secs,sign),S(py,secs,sign),label,note,indent=True)
     ppe_cy=S(cy,{"NCA-PPE-Cost","NCA-PPE-Dep"}); ppe_py=S(py,{"NCA-PPE-Cost","NCA-PPE-Dep"})
@@ -754,7 +762,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     has_intang=abs(S(cy,{"NCA-Intangible-Cost","NCA-Intangible-Amort"}))>=1 or abs(S(py,{"NCA-Intangible-Cost","NCA-Intangible-Amort"}))>=1
     has_loans=abs(S(cy,{"NCL-Loans","CL-Loans","CL-Overdraft"}))>=1 or abs(S(py,{"NCL-Loans","CL-Loans","CL-Overdraft"}))>=1
     _pol=[("Statement of compliance and basis of preparation","The financial statements have been prepared in accordance with the "+fws+" as issued by the International Accounting Standards Board, on the historical-cost basis, and are presented in Nigerian Naira (N), the functional and presentation currency of the Company."),
-          ("Revenue recognition","Revenue is measured at the fair value of the consideration received or receivable, net of discounts, returns and value-added tax. Revenue is recognised when the amount can be reliably measured, it is probable that the economic benefits will flow to the Company, and control of the goods or services has been transferred to the customer."),
+          (("Income recognition" if _finco else "Revenue recognition"),
+           ("Interest income and interest expense are recognised in profit or loss for all interest-bearing financial instruments using the effective interest method. Fees and commissions that are an integral part of the effective interest rate are included in its measurement; other fees and commission income are recognised as the related services are performed. Dividend and investment income is recognised when the Company's right to receive payment is established."
+            if _finco else
+            "Revenue is measured at the fair value of the consideration received or receivable, net of discounts, returns and value-added tax. Revenue is recognised when the amount can be reliably measured, it is probable that the economic benefits will flow to the Company, and control of the goods or services has been transferred to the customer.")),
           ("Property, plant and equipment","Property, plant and equipment is stated at cost less accumulated depreciation and any accumulated impairment losses. Depreciation is recognised on a straight-line basis to write off the cost of each asset, less residual value, over its estimated useful life. The depreciation rates applied are set out in the property, plant and equipment note.")]
     if has_intang: _pol.append(("Intangible assets","Intangible assets acquired separately are stated at cost less accumulated amortisation and any accumulated impairment losses. Amortisation is recognised on a straight-line basis over the estimated useful lives of the assets."))
     if has_inv: _pol.append(("Inventories","Inventories are measured at the lower of cost and estimated selling price less costs to complete and sell. Cost is assigned on a first-in, first-out basis and comprises expenditure incurred in bringing the inventories to their present location and condition."))
@@ -790,9 +801,12 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
             f"In accordance with the {fws}, the adjustment has been accounted for retrospectively. The opening balance of retained earnings has been restated accordingly; the effect on the comparative retained earnings brought forward is set out in the Statement of Changes in Equity."])); n+=1
     def add(title,secs,sign=1):
         nonlocal n; notes.append(N(f"{n}. {title}",table=figtab(secs,sign))); ref=n; n+=1; return ref
-    ref_rev=add("Revenue",{"PL-Revenue"},-1)
+    # Trading Revenue / Cost-of-Sales notes only when those tokens carry a figure. A finance/asset
+    # manager (interest, fee and investment income) has no PL-Revenue/PL-COS, so these notes are
+    # suppressed and the Interest Income / Interest Expense / Fee income notes below stand in their place.
+    ref_rev=add("Revenue",{"PL-Revenue"},-1) if (abs(S(cy,{"PL-Revenue"},-1))>=1 or abs(S(py,{"PL-Revenue"},-1))>=1) else 0
     if abs(oi)>=1 or abs(oi_py)>=1: ref_oi=add("Other Income",{"PL-OtherInc","PL-OtherGains"},-1)
-    ref_cos=add("Cost of Sales",{"PL-COS"})
+    ref_cos=add("Cost of Sales",{"PL-COS"}) if (abs(S(cy,{"PL-COS"}))>=1 or abs(S(py,{"PL-COS"}))>=1) else 0
     ref_admin=add("Administrative Expenses",{"PL-Admin"})
     ref_sell=add("Selling and Distribution Expenses",{"PL-Selling"})
     if abs(fin)>=1 or abs(fin_py)>=1: ref_fin=add("Finance Cost",{"PL-FinCost"})
@@ -800,7 +814,12 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
         ["Tertiary Education Tax",taxcy["tet"],taxpy["tet"]]]
     if taxcy["development_levy"] or taxpy["development_levy"]: tn.append(["Development Levy",taxcy["development_levy"],taxpy["development_levy"]])
     if taxcy["police_trust_fund"] or taxpy["police_trust_fund"]: tn.append(["Police Trust Fund Levy",taxcy["police_trust_fund"],taxpy["police_trust_fund"]])
-    tn.append(["Tax expense for the year",taxcy["total_tax"],taxpy["total_tax"],"total"])
+    # Foot the note to the charge actually recognised on the face (booked, where the client posted one).
+    # Any gap to the statutory computation is shown transparently, so the note never disagrees with the P&L.
+    _prov_cy=taxexp-taxcy["total_tax"]; _prov_py=taxexp_py-taxpy["total_tax"]
+    if abs(_prov_cy)>=1 or abs(_prov_py)>=1:
+        tn.append(["Prior-year (over)/under-provision and adjustments",_prov_cy,_prov_py])
+    tn.append(["Tax expense for the year",taxexp,taxexp_py,"total"])
     ref_tax=n; notes.append(N(f"{n}. Taxation",table=tn)); n+=1
     # Tax reconciliation (computed; Section 29.40)
     rate=cov.get("cit_rate",0.30) or 0.30
@@ -815,10 +834,10 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     if abs(min_adj)>=1 or abs(min_adj_py)>=1: recon.append(["Minimum-tax / other adjustment",min_adj,min_adj_py])
     recon.append(["Tertiary Education Tax and levies",taxcy["tet"]+taxcy["development_levy"]+taxcy["police_trust_fund"],taxpy["tet"]+taxpy["development_levy"]+taxpy["police_trust_fund"]])
     # balancing line so the reconciliation always foots (chiefly the tax effect of losses not recognised as a deferred tax asset)
-    _rbal=taxcy["total_tax"]-sum(r[1] for r in recon[1:]); _rbal_py=taxpy["total_tax"]-sum(r[2] for r in recon[1:])
+    _rbal=taxexp-sum(r[1] for r in recon[1:]); _rbal_py=taxexp_py-sum(r[2] for r in recon[1:])
     if abs(_rbal)>=1 or abs(_rbal_py)>=1:
         recon.append(["Tax effect of unrecognised tax losses" if (pbt<0 or pbt_py<0) else "Other reconciling differences",_rbal,_rbal_py])
-    recon.append(["Tax expense for the year",taxcy["total_tax"],taxpy["total_tax"],"total"])
+    recon.append(["Tax expense for the year",taxexp,taxexp_py,"total"])
     notes.append(N(f"{n}. Reconciliation of Tax Expense",["The tax expense for the year reconciles to the accounting profit multiplied by the statutory tax rate as follows:"],table=recon)); n+=1
     ref_ppe=n; ppe=_ppe(wb); notes.append(N(f"{n}. Property, Plant and Equipment",ppe=ppe or {"classes":[],"total":[0,0,0,0]})); n+=1
     ref_rec=add("Trade and Other Receivables",{"CA-Trade-Rec","CA-Other-Rec","CA-Allowance","CA-Prepay"})
@@ -1058,7 +1077,7 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
           "rc":ent_rc or "[RC]","auditor":cov.get("entity") and "Kayode Okunola & Co","auditor_name":"Kayode Okunola & Co",
           "fy":(meta_over or {}).get("fy","2025"),"period_end":(meta_over or {}).get("period_end","31 December 2025"),"sign_date":(meta_over or {}).get("sign_date","22 May 2026"),"framework":fw,"framework_short":fws,
           "first_year":False,"signatories":_sigs,"sig_words":_sig_words,
-          "results_para":f"The Company reported revenue of N{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of N{abs(pat):,.0f}.",
+          "results_para":f"The Company reported {'gross earnings' if _finco else 'revenue'} of N{rev:,.0f} and a {'loss' if pat<0 else 'profit'} for the year of N{abs(pat):,.0f}.",
           "ppe_para":f"The depreciation charge for the year amounted to N{dep_charge:,.0f}.",
           "frc_no":"","ican_stamp_no":"","stamp_image":None,"signature_image":None,"total_pages":20}
     _act=(meta_over or {}).get("activity") or _einfo.get("activity")
@@ -1066,9 +1085,18 @@ def build_data(path, meta_over=None, disclosures=None, scale=None, full_ifrs=Non
     _office=_office_lines(_einfo.get("office"), _einfo.get("city")) or ["Lagos, Nigeria"]
     _bankers=(meta_over or {}).get("bankers") or _einfo.get("bankers") or ["Banker details to be confirmed"]
     _aud=_einfo.get("auditor") or "Kayode Okunola & Co"
+    # Principal-activity sentence: if the client's text already reads as a full sentence, use it verbatim
+    # (avoids "The principal activity of the Company is the Company's principal activities are ...").
+    def _activity_para(a):
+        a=(a or "").strip()
+        if not a: return "The principal activity of the Company is to be confirmed by the Directors."
+        _low=a.lower()
+        if _low.startswith(("the ","our ","its ")) or "principal activit" in _low or "business of" in _low or "carry on" in _low:
+            return a if a.endswith(".") else a+"."
+        return f"The principal activity of the Company is {a[0].lower()+a[1:]}" + ("" if a.endswith(".") else ".")
     entity={"name":ent_name,"short_name":meta["short_name"],"name_line2":meta["name_line2"],"rc":meta["rc"],
             "activity":_act or "[Principal activity to be confirmed]","activity_short":"[Principal activity]",
-            "activity_para":(f"The principal activity of the Company is {_act[0].lower()+_act[1:]}." if _act else "The principal activity of the Company is to be confirmed by the Directors."),
+            "activity_para":_activity_para(_act),
             "directors":_dirs,"office":_office,"bankers":_bankers,
             "auditor":_aud,"auditor_name":_aud,"city":(_einfo.get("city") or "Lagos, Nigeria")}
     tie=[("SOFP balances",abs(ta-tel)<1),("Gross profit",abs(rev-cos-gross)<1),
